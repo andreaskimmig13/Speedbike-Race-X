@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Speed Race X Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Barlow:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+/* Layout: eine Spalte wie ein Radcomputer – Verbinden oben, große Live-Kacheln, darunter Diagnose */
+:root{
+  --bg:#eef1f4; --panel:#ffffff; --ink:#15202b; --muted:#5a6775; --line:#d5dce4;
+  --accent:#b4530a; --accent-ink:#ffffff; --live:#0e7a6e; --warn:#a1340d;
+  --f-num:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Barlow",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f151b; --panel:#17202a; --ink:#e7edf3; --muted:#93a1b0; --line:#2a3644;
+  --accent:#f2a33a; --accent-ink:#1a1206; --live:#3cc9b5; --warn:#f08a64; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f151b; --panel:#17202a; --ink:#e7edf3; --muted:#93a1b0; --line:#2a3644;
+  --accent:#f2a33a; --accent-ink:#1a1206; --live:#3cc9b5; --warn:#f08a64; color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 var(--f-body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:max(20px,env(safe-area-inset-top,0px)) max(32px,env(safe-area-inset-bottom,0px))}
+.wrap{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h1{font:600 2rem/1.1 var(--f-num);letter-spacing:.01em;margin:0;text-wrap:balance}
+h2{font:600 1.15rem/1.2 var(--f-num);letter-spacing:.06em;text-transform:uppercase;margin:0;color:var(--muted)}
+p{margin:0}
+.sub{color:var(--muted);max-width:62ch}
+
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+button{font:600 1rem var(--f-body);border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--ink);
+  padding:10px 16px;cursor:pointer;min-height:44px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);padding-inline:22px}
+button:disabled{opacity:.5;cursor:default}
+button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.status{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:.95rem}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--line);flex:none}
+.status.on .dot{background:var(--live)}
+.status.on{color:var(--ink)}
+.status.err{color:var(--warn)}
+.status.err .dot{background:var(--warn)}
+
+.steps{display:grid;gap:6px;margin:0;padding-left:1.3em;color:var(--muted)}
+
+.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:14px;overflow:hidden}
+@media (min-width:600px){.tiles{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.tile{background:var(--panel);padding:14px 16px 12px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.tile .lab{font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tile .val{font:600 3rem/1 var(--f-num);font-variant-numeric:tabular-nums;transition:opacity .3s}
+.tile .val small{font:500 1rem var(--f-num);color:var(--muted);margin-left:4px}
+.tile .src{font-size:.78rem;color:var(--muted);min-height:1.2em}
+.tile.key .val{color:var(--accent)}
+.tile.stale .val{opacity:.35}
+
+.manual{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:10px 14px}
+.manual .num{font:600 1.8rem/1 var(--f-num);font-variant-numeric:tabular-nums;min-width:2.2ch;text-align:center}
+.manual button{min-width:44px;padding:6px 12px}
+.manual p{flex:1 1 220px;color:var(--muted);font-size:.9rem}
+
+section{display:flex;flex-direction:column;gap:10px}
+.svc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+  font:0.85rem/1.6 var(--f-mono);overflow-x:auto;white-space:pre;min-height:3em;color:var(--ink)}
+.svc .muted,.log .muted{color:var(--muted)}
+.log{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+  font:0.8rem/1.55 var(--f-mono);overflow:auto;max-height:280px;white-space:pre}
+textarea{width:100%;min-height:200px;font:0.8rem/1.5 var(--f-mono);background:var(--panel);color:var(--ink);
+  border:1px solid var(--line);border-radius:12px;padding:12px}
+.note{border-left:3px solid var(--warn);padding:8px 12px;background:var(--panel);border-radius:0 10px 10px 0}
+.small{font-size:.85rem;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:8px">
+    <h1>Speed Race X Monitor</h1>
+    <p class="sub">Liest Trittfrequenz, Stufe und alle weiteren Bluetooth-Daten deines Hammer Speed Race X und rechnet die Watt über die Messtabelle aus dem Test von ergometersport.de.</p>
+  </header>
+
+  <div id="unsupported" class="note" hidden>
+    <p><strong>Bluetooth ist in diesem Browser nicht verfügbar.</strong> Öffne die Seite in Chrome auf Android, Windows oder Mac. In der Claude-App, in Firefox und auf dem iPhone funktioniert Web Bluetooth nicht.</p>
+  </div>
+
+  <ol class="steps">
+    <li>Kinomap und andere Apps schließen. Das Bike nimmt nur eine Verbindung an.</li>
+    <li>Ein paar Kurbelumdrehungen treten, damit das Display aufwacht.</li>
+    <li>„Verbinden“ tippen und das Bike in der Liste wählen.</li>
+  </ol>
+
+  <div class="bar">
+    <button id="connect" class="primary" type="button">Verbinden</button>
+    <button id="disconnect" type="button" hidden>Trennen</button>
+    <div id="status" class="status"><span class="dot"></span><span id="statusText">Nicht verbunden</span></div>
+  </div>
+
+  <div class="tiles" id="tiles">
+    <div class="tile" id="t-cad"><span class="lab">Trittfrequenz</span><span class="val">–<small>U/min</small></span><span class="src"></span></div>
+    <div class="tile" id="t-lvl"><span class="lab">Stufe</span><span class="val">–<small>/ 32</small></span><span class="src"></span></div>
+    <div class="tile key" id="t-wtab"><span class="lab">Watt laut Tabelle</span><span class="val">–<small>W</small></span><span class="src"></span></div>
+    <div class="tile" id="t-pow"><span class="lab">Watt vom Bike</span><span class="val">–<small>W</small></span><span class="src"></span></div>
+    <div class="tile" id="t-spd"><span class="lab">Tempo</span><span class="val">–<small>km/h</small></span><span class="src"></span></div>
+    <div class="tile" id="t-hr"><span class="lab">Puls</span><span class="val">–<small>bpm</small></span><span class="src"></span></div>
+  </div>
+
+  <div class="manual">
+    <span class="small">Stufe manuell</span>
+    <button id="lvlDown" type="button" aria-label="Stufe niedriger">−</button>
+    <span class="num" id="lvlManual">20</span>
+    <button id="lvlUp" type="button" aria-label="Stufe höher">+</button>
+    <p id="manualHint">Wird nur genutzt, solange das Bike keine Stufe sendet. Stell hier dieselbe Stufe ein wie am Display.</p>
+  </div>
+
+  <section>
+    <h2>Gefundene Dienste</h2>
+    <div class="svc" id="services"><span class="muted">Noch nichts verbunden.</span></div>
+  </section>
+
+  <section>
+    <h2>Rohdaten</h2>
+    <p class="small">Neueste Pakete oben. Uhrzeit · Merkmal · Bytes in Hex.</p>
+    <div class="log" id="log"><span class="muted">Warte auf Daten …</span></div>
+  </section>
+
+  <section>
+    <h2>Protokoll für Claude</h2>
+    <p class="small">Nach etwa einer Minute Treten mit ein paar Stufenwechseln kopieren und in den Chat einfügen.</p>
+    <div class="bar">
+      <button id="copy" type="button">Protokoll kopieren</button>
+      <span id="copyMsg" class="small" aria-live="polite"></span>
+    </div>
+    <textarea id="report" readonly aria-label="Protokoll"></textarea>
+  </section>
+
+  <p class="small">Watt-Tabelle: Messung mit Garmin-Wattpedalen bei 60, 80 und 100 U/min auf einem Testgerät. Die Magnetbremse ist nicht geeicht, dein Bike kann abweichen. Werte über 100 U/min und für Stufe 30–32 bei 100 U/min sind hochgerechnet.</p>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const $ = s => document.querySelector(s);
+
+  /* ---------- Watt-Tabelle (ergometersport.de, Speed Race X) ---------- */
+  const LV  = [1,3,5,7,9,11,13,15,17,19,21,23,25,27,30,32];
+  const W60 = [39,41,45,51,60,68,74,79,85,90,103,120,137,180,290,359];
+  const W80 = [54,60,67,71,76,83,89,96,105,113,135,176,218,288,374,455];
+  const W100= [74,78,83,90,99,108,115,127,135,146,181,222,263,372,458,551]; // 30/32 hochgerechnet
+  function colAt(col, lvl){
+    const l = Math.min(32, Math.max(1, lvl));
+    for (let i = 0; i < LV.length - 1; i++){
+      if (l <= LV[i+1]){ const f = (l - LV[i]) / (LV[i+1] - LV[i]); return col[i] + f * (col[i+1] - col[i]); }
+    }
+    return col[col.length - 1];
+  }
+  function wattFromTable(lvl, rpm){
+    if (lvl == null || rpm == null) return null;
+    if (rpm < 15) return 0;
+    const a = colAt(W60,lvl), b = colAt(W80,lvl), c = colAt(W100,lvl);
+    let w;
+    if (rpm <= 60) w = a * rpm / 60;
+    else if (rpm <= 80) w = a + (b - a) * (rpm - 60) / 20;
+    else if (rpm <= 100) w = b + (c - b) * (rpm - 80) / 20;
+    else w = c + (c - b) * (Math.min(rpm,130) - 100) / 20;
+    return Math.round(w);
+  }
+
+  /* ---------- Bluetooth-Namen ---------- */
+  const STD = /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/i;
+  const short = u => { const m = STD.exec(u); return m ? "0x" + m[1].toUpperCase() : u; };
+  const NAMES = {
+    "0x1826":"Fitness Machine (FTMS)","0x2AD2":"Indoor Bike Data","0x2ACC":"Fitness Machine Feature",
+    "0x2AD6":"Supported Resistance Level Range","0x2AD8":"Supported Power Range","0x2AD9":"Fitness Machine Control Point",
+    "0x2ADA":"Fitness Machine Status","0x2AD3":"Training Status","0x1818":"Cycling Power","0x2A63":"Cycling Power Measurement",
+    "0x2A65":"Cycling Power Feature","0x1816":"Cycling Speed and Cadence","0x2A5B":"CSC Measurement","0x180D":"Heart Rate",
+    "0x2A37":"Heart Rate Measurement","0x180A":"Device Information","0x2A29":"Hersteller","0x2A24":"Modell",
+    "0x2A26":"Firmware","0x2A28":"Software","0x2A27":"Hardware","0x2A25":"Seriennummer","0x180F":"Battery","0x2A19":"Akkustand",
+    "0xFFF0":"Herstellerdienst (FFF0)","0xFFE0":"Herstellerdienst (FFE0)","0x6E400001-B5A3-F393-E0A9-E50E24DCCA9E":"Nordic UART"
+  };
+  const nameOf = u => NAMES[short(u).toUpperCase()] || NAMES[short(u)] || "";
+  const OPT = [0x1826,0x1818,0x1816,0x180d,0x180a,0x180f,0xfff0,0xffe0,0xffc0,0xfee0,0x1814,
+    "6e400001-b5a3-f393-e0a9-e50e24dcca9e","0000fff0-0000-1000-8000-00805f9b34fb"];
+  const hex = dv => Array.from(new Uint8Array(dv.buffer, dv.byteOffset, dv.byteLength))
+    .map(b => b.toString(16).padStart(2,"0")).join(" ");
+
+  /* ---------- Zustand ---------- */
+  const live = {};            // key -> {v, src, t}
+  let device = null, levelScale = null, manualLevel = 20, wakeLock = null;
+  const rep = { device:"", info:{}, services:[], reads:{}, samples:{}, range:null };
+  const rawLines = [];
+  const setLive = (k, v, src) => { if (v == null || Number.isNaN(v)) return; live[k] = { v, src, t: Date.now() }; };
+
+  /* ---------- Parser ---------- */
+  function reader(dv){
+    let o = 0; const ok = n => o + n <= dv.byteLength;
+    return {
+      u8(){ if(!ok(1)) throw 0; const v = dv.getUint8(o); o+=1; return v; },
+      u16(){ if(!ok(2)) throw 0; const v = dv.getUint16(o,true); o+=2; return v; },
+      s16(){ if(!ok(2)) throw 0; const v = dv.getInt16(o,true); o+=2; return v; },
+      skip(n){ if(!ok(n)) throw 0; o+=n; }
+    };
+  }
+  function crankTracker(){
+    let last = null;
+    return (revs, time) => {
+      const now = Date.now();
+      if (!last){ last = { r:revs, t:time, ts:now }; return null; }
+      const dr = (revs - last.r + 65536) % 65536, dt = (time - last.t + 65536) % 65536;
+      if (dt > 0 && dr > 0){ last = { r:revs, t:time, ts:now }; return dr * 60 * 1024 / dt; }
+      if (now - last.ts > 3000) return 0;
+      return null;
+    };
+  }
+  const cpsCrank = crankTracker(), cscCrank = crankTracker();
+
+  function parseIBD(dv){
+    const r = reader(dv);
+    try{
+      const f = r.u16();
+      if (!(f & 1)) setLive("spd", r.u16()/100, "FTMS");
+      if (f & 2) r.skip(2);
+      if (f & 4) setLive("cad", r.u16()/2, "FTMS");
+      if (f & 8) r.skip(2);
+      if (f & 16) r.skip(3);
+      if (f & 32){ const raw = r.s16(); const sc = levelScale ?? (raw > 32 ? 10 : 1); setLive("lvl", raw/sc, "FTMS"); }
+      if (f & 64) setLive("pow", r.s16(), "FTMS");
+      if (f & 128) r.skip(2);
+      if (f & 256) r.skip(5);
+      if (f & 512){ const h = r.u8(); if (h > 0) setLive("hr", h, "FTMS"); }
+    }catch(e){}
+  }
+  function parseCPS(dv){
+    const r = reader(dv);
+    try{
+      const f = r.u16(); setLive("pow", r.s16(), "Cycling Power");
+      if (f & 1) r.skip(1); if (f & 4) r.skip(2); if (f & 16) r.skip(6);
+      if (f & 32){ const c = cpsCrank(r.u16(), r.u16()); if (c != null) setLive("cad", c, "Cycling Power"); }
+    }catch(e){}
+  }
+  function parseCSC(dv){
+    const r = reader(dv);
+    try{
+      const f = r.u8(); if (f & 1) r.skip(6);
+      if (f & 2){ const c = cscCrank(r.u16(), r.u16()); if (c != null) setLive("cad", c, "Speed & Cadence"); }
+    }catch(e){}
+  }
+  function parseHR(dv){
+    try{ const f = dv.getUint8(0); const h = (f & 1) ? dv.getUint16(1,true) : dv.getUint8(1); if (h > 0) setLive("hr", h, "Pulsgurt"); }catch(e){}
+  }
+  const PARSERS = { "0x2AD2":parseIBD, "0x2A63":parseCPS, "0x2A5B":parseCSC, "0x2A37":parseHR };
+
+  /* ---------- Anzeige ---------- */
+  function tile(id, value, unit, src, stale){
+    const el = $(id);
+    el.querySelector(".val").innerHTML = "";
+    el.querySelector(".val").append(value, Object.assign(document.createElement("small"), { textContent: unit }));
+    el.querySelector(".src").textContent = src || "";
+    el.classList.toggle("stale", !!stale);
+  }
+  function fresh(k){ const x = live[k]; return x && Date.now() - x.t < 4000 ? x : null; }
+  function render(){
+    const cad = fresh("cad"), lvl = fresh("lvl"), pow = fresh("pow"), spd = fresh("spd"), hr = fresh("hr");
+    tile("#t-cad", cad ? Math.round(cad.v) : "–", "U/min", cad?.src, !cad && live.cad);
+    const lvlVal = lvl ? lvl.v : manualLevel;
+    tile("#t-lvl", lvl ? (Number.isInteger(lvl.v) ? lvl.v : lvl.v.toFixed(1)) : manualLevel, "/ 32", lvl ? lvl.src : "manuell eingestellt", false);
+    const wt = cad ? wattFromTable(lvlVal, cad.v) : null;
+    tile("#t-wtab", wt ?? "–", "W", wt != null ? `Stufe ${Math.round(lvlVal)} · ${Math.round(cad.v)} U/min` : "braucht Trittfrequenz", false);
+    tile("#t-pow", pow ? Math.round(pow.v) : "–", "W", pow ? pow.src : (device ? "sendet das Bike nicht" : ""), !pow && live.pow);
+    tile("#t-spd", spd ? spd.v.toFixed(1) : "–", "km/h", spd?.src, !spd && live.spd);
+    tile("#t-hr", hr ? hr.v : "–", "bpm", hr?.src, !hr && live.hr);
+    $("#manualHint").textContent = lvl
+      ? "Das Bike sendet die Stufe selbst. Die manuelle Einstellung wird gerade nicht gebraucht."
+      : "Wird nur genutzt, solange das Bike keine Stufe sendet. Stell hier dieselbe Stufe ein wie am Display.";
+  }
+  setInterval(render, 300);
+
+  let logDirty = false;
+  function addRaw(uuid, dv){
+    const s = short(uuid);
+    const line = `${new Date().toLocaleTimeString("de-DE")}  ${s.padEnd(8)}  ${hex(dv)}`;
+    rawLines.unshift(line); if (rawLines.length > 60) rawLines.pop();
+    const arr = rep.samples[s] || (rep.samples[s] = []);
+    arr.push(hex(dv)); if (arr.length > 10) arr.shift();
+    logDirty = true;
+  }
+  setInterval(() => {
+    if (!logDirty) return; logDirty = false;
+    $("#log").textContent = rawLines.join("\n");
+    buildReport();
+  }, 700);
+
+  function renderServices(){
+    const box = $("#services"); box.textContent = "";
+    if (!rep.services.length){ box.innerHTML = '<span class="muted">Keine lesbaren Dienste gefunden.</span>'; return; }
+    box.textContent = rep.services.map(s =>
+      `${short(s.uuid)}  ${nameOf(s.uuid)}\n` +
+      s.chars.map(c => `   ${short(c.uuid)}  ${nameOf(c.uuid)}  [${c.props.join(", ")}]` + (rep.reads[short(c.uuid)] ? `\n      = ${rep.reads[short(c.uuid)]}` : "")).join("\n")
+    ).join("\n\n");
+  }
+
+  function buildReport(){
+    const has = k => live[k] ? `ja (${live[k].src})` : "nein";
+    const lines = [
+      "Speed Race X – Bluetooth-Protokoll",
+      `Gerät: ${rep.device || "–"}`,
+      ...Object.entries(rep.info).map(([k,v]) => `${k}: ${v}`),
+      rep.range ? `Stufenbereich laut Bike: ${rep.range.min} bis ${rep.range.max}, Schritt ${rep.range.inc}` : "",
+      "",
+      `Erkannt: Trittfrequenz ${has("cad")}, Stufe ${has("lvl")}, Watt ${has("pow")}, Tempo ${has("spd")}, Puls ${has("hr")}`,
+      live.lvl ? `Letzte Stufe: ${live.lvl.v}` : "", live.cad ? `Letzte Trittfrequenz: ${Math.round(live.cad.v)}` : "",
+      live.pow ? `Letzte Watt vom Bike: ${live.pow.v}` : "",
+      "",
+      "Dienste:",
+      ...rep.services.flatMap(s => [`${short(s.uuid)} ${nameOf(s.uuid)}`,
+        ...s.chars.map(c => `  ${short(c.uuid)} ${nameOf(c.uuid)} [${c.props.join(",")}]` + (rep.reads[short(c.uuid)] ? ` = ${rep.reads[short(c.uuid)]}` : ""))]),
+      "",
+      "Beispielpakete (letzte 10 je Merkmal):",
+      ...Object.entries(rep.samples).flatMap(([k,v]) => [`${k}:`, ...v.map(x => "  " + x)])
+    ].filter((l,i,a) => l !== "" || a[i-1] !== "");
+    $("#report").value = lines.join("\n");
+  }
+
+  /* ---------- Status ---------- */
+  function status(text, kind){
+    $("#statusText").textContent = text;
+    $("#status").className = "status" + (kind ? " " + kind : "");
+  }
+
+  /* ---------- Verbinden ---------- */
+  async function connect(){
+    if (!navigator.bluetooth){ $("#unsupported").hidden = false; return; }
+    let dev;
+    try{
+      dev = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: OPT });
+    }catch(e){
+      if (e.name === "NotFoundError") status("Kein Gerät gewählt. Tippe erneut auf Verbinden.", "");
+      else if (e.name === "SecurityError") status("Bluetooth ist hier gesperrt. Öffne die Datei direkt in Chrome.", "err");
+      else status("Bluetooth-Suche fehlgeschlagen: " + e.message, "err");
+      return;
+    }
+    device = dev;
+    rep.device = dev.name || "(ohne Namen)"; rep.services = []; rep.reads = {}; rep.samples = {}; rep.info = {};
+    dev.addEventListener("gattserverdisconnected", () => {
+      status("Verbindung getrennt. Tippe auf Verbinden, um neu zu koppeln.", "err");
+      $("#connect").hidden = false; $("#disconnect").hidden = true;
+      try{ wakeLock && wakeLock.release(); }catch(e){}
+    });
+    status(`Verbinde mit ${rep.device} …`, "");
+    try{
+      const server = await dev.gatt.connect();
+      const services = await server.getPrimaryServices();
+      for (const svc of services){
+        const entry = { uuid: svc.uuid, chars: [] };
+        rep.services.push(entry);
+        let chars = [];
+        try{ chars = await svc.getCharacteristics(); }catch(e){}
+        for (const ch of chars){
+          const p = ch.properties, props = [];
+          if (p.read) props.push("read"); if (p.notify) props.push("notify"); if (p.indicate) props.push("indicate");
+          if (p.write) props.push("write"); if (p.writeWithoutResponse) props.push("write-no-resp");
+          entry.chars.push({ uuid: ch.uuid, props });
+          const s = short(ch.uuid);
+          if (p.read){
+            try{
+              const v = await ch.readValue();
+              const isText = svc.uuid.startsWith("0000180a");
+              rep.reads[s] = isText ? new TextDecoder().decode(v.buffer).replace(/\0/g,"").trim() : hex(v);
+              if (isText && nameOf(ch.uuid)) rep.info[nameOf(ch.uuid)] = rep.reads[s];
+              if (s === "0x2AD6" && v.byteLength >= 6){
+                rep.range = { min: v.getInt16(0,true), max: v.getInt16(2,true), inc: v.getUint16(4,true) };
+                levelScale = rep.range.max > 32 ? rep.range.max / 32 : 1;
+              }
+            }catch(e){}
+          }
+          if (p.notify || p.indicate){
+            try{
+              ch.addEventListener("characteristicvaluechanged", ev => {
+                const dv = ev.target.value; addRaw(ch.uuid, dv);
+                const fn = PARSERS[s]; if (fn) fn(dv);
+              });
+              await ch.startNotifications();
+            }catch(e){ props.push("abo fehlgeschlagen"); }
+          }
+        }
+      }
+      renderServices(); buildReport();
+      status(`Verbunden mit ${rep.device}`, "on");
+      $("#connect").hidden = true; $("#disconnect").hidden = false;
+      try{ wakeLock = await navigator.wakeLock?.request("screen"); }catch(e){}
+    }catch(e){
+      status("Verbindung fehlgeschlagen: " + e.message + ". Ist Kinomap noch verbunden?", "err");
+    }
+  }
+
+  $("#connect").addEventListener("click", connect);
+  $("#disconnect").addEventListener("click", () => { try{ device?.gatt?.disconnect(); }catch(e){} });
+  const setManual = d => { manualLevel = Math.min(32, Math.max(1, manualLevel + d)); $("#lvlManual").textContent = manualLevel; render(); };
+  $("#lvlDown").addEventListener("click", () => setManual(-1));
+  $("#lvlUp").addEventListener("click", () => setManual(1));
+  $("#copy").addEventListener("click", async () => {
+    buildReport();
+    const t = $("#report");
+    try{ await navigator.clipboard.writeText(t.value); $("#copyMsg").textContent = "Kopiert. Jetzt im Chat einfügen."; }
+    catch(e){ t.focus(); t.select(); $("#copyMsg").textContent = "Text ist markiert. Kopieren über das Menü."; }
+  });
+
+  if (!navigator.bluetooth) $("#unsupported").hidden = false;
+  render(); buildReport();
+})();
+</script>
+</body>
+</html>
