@@ -431,7 +431,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
       if (f & 4) setLive("cad", r.u16()/2, "Bike");
       if (f & 8) r.skip(2);
       if (f & 16) r.skip(3);
-      if (f & 32){ const raw = r.s16(); setLive("lvl", raw > 40 ? raw/10 : raw, "vom Bike"); }
+      if (f & 32){ const raw = r.s16(); if (raw > 0) setLive("lvl", raw > 40 ? raw/10 : raw, "vom Bike"); }
       if (f & 64) setLive("pow", r.s16(), "Bike");
       if (f & 128) r.skip(2);
       if (f & 256) r.skip(5);
@@ -759,7 +759,8 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
   }
   async function ctrlDetect(){
     if (!bike || !bike.dev || !bike.dev.gatt.connected){ renderCtrl("Zuerst das Bike verbinden."); return false; }
-    if (!fresh("lvl", 3000)){ renderCtrl("Bitte locker treten, damit das Bike Daten sendet, dann erneut testen."); return false; }
+    const cadNow = fresh("cad", 3000);
+    if (!fresh("lvl", 3000) || !cadNow || cadNow.v < 30){ renderCtrl("Bitte locker treten, damit das Bike Daten sendet, dann erneut testen."); return false; }
     ctrl.state = "testing"; renderCtrl("Teste Steuerung … bitte weiter locker treten.");
     const start = R(live.lvl.v);
     const target = start === 15 ? 12 : 15;
