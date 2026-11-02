@@ -2,7 +2,7 @@
  * Speed Race X → Strava Upload
  *
  * Nimmt Fahrten aus der Speed-Race-X-App entgegen und lädt sie bei Strava hoch.
- * Einrichtung: siehe ANLEITUNG-STRAVA.md im Repository.
+ * Einrichtung: Anleitung im Chat mit Claude.
  *
  * Skripteigenschaften (Projekteinstellungen → Skripteigenschaften):
  *   STRAVA_CLIENT_ID      Client-ID deiner Strava-API-Anwendung
