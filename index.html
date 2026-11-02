@@ -124,6 +124,9 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
 .note{border-left:3px solid var(--warn);padding:8px 12px;background:var(--panel);border-radius:0 10px 10px 0}
 .restore{display:flex;flex-direction:column;gap:10px}
 
+.text-in{font:1rem var(--f-mono);padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%;min-height:44px}
+.sub-details{background:var(--bg);padding:10px 14px}
+.callout a{color:var(--accent);font-weight:600}
 details{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 16px}
 summary{cursor:pointer;font:600 1.15rem var(--f-num);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);min-height:32px}
 .diag{display:flex;flex-direction:column;gap:16px;margin-top:12px}
@@ -264,10 +267,23 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
       <button id="bPause" type="button" hidden>Pause</button>
       <button id="bResume" class="primary" type="button" hidden>Weiter</button>
       <button id="bStop" type="button" hidden>Beenden</button>
-      <button id="bSave" class="primary" type="button" hidden>TCX-Datei speichern</button>
+      <button id="bStrava" class="primary" type="button" hidden>Zu Strava hochladen</button>
+      <button id="bSave" type="button" hidden>TCX-Datei speichern</button>
       <button id="bNew" class="danger" type="button" hidden>Neue Fahrt</button>
     </div>
-    <p class="small" id="uploadHint" hidden>Hochladen: strava.com/upload/select im Browser öffnen (am Handy ggf. „Desktopwebsite“ aktivieren) und die Datei wählen. Jeder Trainingsabschnitt erscheint in Strava als eigene Runde.</p>
+    <p id="stravaMsg" class="callout" hidden aria-live="polite"></p>
+    <p class="small" id="uploadHint" hidden>Ohne Einrichtung: TCX-Datei speichern, strava.com/upload/select im Browser öffnen (am Handy „Desktopwebsite“ aktivieren) und die Datei wählen. Jeder Trainingsabschnitt erscheint in Strava als eigene Runde.</p>
+    <details id="stravaSetup" class="sub-details">
+      <summary>Strava-Upload einrichten</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">
+        <p class="small">Script-Adresse und Schlüssel bekommst du bei der Einrichtung (Anleitung im GitHub-Repository: ANLEITUNG-STRAVA.md).</p>
+        <label class="small" for="stUrl">Script-Adresse (endet auf /exec)</label>
+        <input id="stUrl" class="text-in" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/…/exec">
+        <label class="small" for="stKey">Schlüssel</label>
+        <input id="stKey" class="text-in" type="text" autocomplete="off" spellcheck="false" placeholder="32 Zeichen aus „einrichten“">
+        <div class="bar"><button id="stPing" type="button">Verbindung prüfen</button><span id="stPingMsg" class="small" aria-live="polite"></span></div>
+      </div>
+    </details>
     <div class="settings">
       <label for="weight">Körpergewicht fürs virtuelle Tempo</label>
       <input id="weight" type="number" inputmode="decimal" min="40" max="160" step="1" value="80">
@@ -1022,7 +1038,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
   $("#wStart").addEventListener("click", async () => {
     initAudio();
     const u = unit();
-    if (rec.state === "done" && rec.points.length){
+    if (rec.state === "done" && rec.points.length && !rec.stravaId){
       if (!startArmed || Date.now() - startArmed > 6000){
         startArmed = Date.now();
         $("#ctrlMsg").textContent = "Die letzte Fahrt ist noch nicht gespeichert. Erst unten die TCX-Datei speichern, oder nochmal auf „Training starten“ tippen, um sie zu verwerfen.";
@@ -1033,7 +1049,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     wo.unit = u; wo.segs = u.segs.map(s => ({ ...s })); wo.idx = 0; wo.intensity = 1; wo.freeTarget = R(.65 * ftp); wo.testRange = null;
     wo.active = true;
     $("#testResult").hidden = true;
-    rec = newRide(); rec.state = "run"; rec.last = Date.now(); rec.name = u.free ? u.name : `Woche ${u.w} · ${u.u}: ${u.name}`;
+    rec = newRide(); rec.state = "run"; rec.last = Date.now(); rec.name = u.free ? "Indoor: Zielwatt" : `Woche ${u.w} · ${u.u}: ${u.name}`;
     $("#pick").hidden = true; $("#run").hidden = false;
     keepAwake();
     if (ctrl.state !== "ok" && bike.dev && bike.dev.gatt.connected && fresh("lvl", 3000)) await ctrlDetect();
@@ -1103,11 +1119,15 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     $("#bResume").classList.toggle("primary", st === "pause");
     $("#bStop").hidden = !(st === "run" || st === "pause");
     $("#bSave").hidden = st !== "done";
+    const stReady = !!(stravaCfg.url && stravaCfg.key);
+    $("#bStrava").hidden = !(st === "done" && stReady && !rec.stravaId);
+    $("#bSave").classList.toggle("primary", st === "done" && !stReady);
+    if (st !== "done") $("#stravaMsg").hidden = true;
     $("#bNew").hidden = st !== "done";
     $("#uploadHint").hidden = st !== "done";
     $("#wStart").disabled = st === "run" || st === "pause";
   }
-  function saveRide(){ if (rec.points.length) store.set(REC_KEY, { points:rec.points, activeSec:rec.activeSec, dist:rec.dist, work:rec.work, laps:rec.laps, name:rec.name }); }
+  function saveRide(){ if (rec.points.length) store.set(REC_KEY, { points:rec.points, activeSec:rec.activeSec, dist:rec.dist, work:rec.work, laps:rec.laps, name:rec.name, stravaId:rec.stravaId || null }); }
 
   $("#bStart").addEventListener("click", () => { initAudio(); rec = newRide(); rec.state = "run"; rec.last = Date.now(); rec.name = "Indoor-Fahrt"; keepAwake(); renderRide(); });
   $("#bPause").addEventListener("click", () => { rec.state = "pause"; saveRide(); renderRide(); });
@@ -1164,9 +1184,66 @@ ${laps}
     setTimeout(() => URL.revokeObjectURL(url), 5000);
   });
 
+  /* ---------- Strava-Upload über Apps Script ---------- */
+  const stravaCfg = { url: store.get("srx.strava.url") || "", key: store.get("srx.strava.key") || "" };
+  $("#stUrl").value = stravaCfg.url; $("#stKey").value = stravaCfg.key;
+  if (!stravaCfg.url || !stravaCfg.key) $("#stravaSetup").open = false;
+  function readCfg(){
+    stravaCfg.url = $("#stUrl").value.trim(); stravaCfg.key = $("#stKey").value.trim();
+    store.set("srx.strava.url", stravaCfg.url); store.set("srx.strava.key", stravaCfg.key);
+    renderRide();
+  }
+  $("#stUrl").addEventListener("change", readCfg);
+  $("#stKey").addEventListener("change", readCfg);
+  async function callScript(body){
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(stravaCfg.url)) throw new Error("Die Script-Adresse muss mit https://script.google.com/macros/s/ beginnen und auf /exec enden.");
+    if (!stravaCfg.key) throw new Error("Bitte den Schlüssel eintragen.");
+    let res;
+    try{
+      res = await fetch(stravaCfg.url, { method:"POST", headers:{ "Content-Type":"text/plain;charset=utf-8" }, body: JSON.stringify({ ...body, key: stravaCfg.key }) });
+    }catch(e){ throw new Error("Script nicht erreichbar. Prüfe die Adresse und ob die Web-App für „Jeder“ freigegeben ist."); }
+    let j;
+    try{ j = await res.json(); }catch(e){ throw new Error("Unerwartete Antwort vom Script. Ist die Adresse die der Web-App (endet auf /exec)?"); }
+    if (!j.ok) throw new Error(j.error || "Unbekannter Fehler");
+    return j;
+  }
+  $("#stPing").addEventListener("click", async () => {
+    readCfg();
+    const m = $("#stPingMsg"); m.textContent = "Prüfe …";
+    try{ const j = await callScript({ action:"ping" }); m.textContent = `Verbindung steht. Strava-Konto: ${j.athlete || "unbekannt"}`; }
+    catch(e){ m.textContent = e.message; }
+  });
+  function stravaMsg(html){ const el = $("#stravaMsg"); el.hidden = false; el.innerHTML = html; }
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+  function rideDescription(){
+    const aw = R(rec.work / Math.max(1, rec.activeSec)), ah = avgHr(rec.points);
+    return `Ø ${aw} W${ah ? ` · Ø Puls ${ah} bpm` : ""} · ${R(rec.work/1000)} kJ · ${fmtTime(rec.activeSec)}\n` +
+      "Hammer Speed Race X. Watt aus Stufe und Trittfrequenz geschätzt (Messtabelle ergometersport.de).";
+  }
+  $("#bStrava").addEventListener("click", async () => {
+    if (!rec.points.length) return;
+    const b = $("#bStrava"); b.disabled = true;
+    stravaMsg("Lade zu Strava hoch … das dauert etwa 10 bis 30 Sekunden.");
+    try{
+      const j = await callScript({ action:"upload", name: rec.name || "Indoor-Fahrt", description: rideDescription(), tcx: buildTCX(), externalId: `speedrace-${rec.points[0][0]}` });
+      if (j.activityId){
+        rec.stravaId = j.activityId; saveRide();
+        const link = `<a href="https://www.strava.com/activities/${esc(j.activityId)}" target="_blank" rel="noopener">In Strava öffnen</a>`;
+        stravaMsg((j.duplicate ? "Diese Fahrt ist schon in Strava. " : "Hochgeladen. ") + link);
+        $("#stravaMsg").classList.add("good");
+      } else {
+        stravaMsg(esc(j.message || "Hochgeladen. Strava verarbeitet die Fahrt noch."));
+      }
+    }catch(e){
+      stravaMsg("Upload fehlgeschlagen: " + esc(e.message) + " Die TCX-Datei kannst du weiterhin speichern und von Hand hochladen.");
+      $("#stravaMsg").classList.remove("good");
+    }finally{ b.disabled = false; renderRide(); }
+  });
+
   /* ---------- Wiederherstellen ---------- */
   const saved = store.get(REC_KEY);
-  if (saved && saved.points && saved.points.length > 5){
+  if (saved && saved.stravaId) store.del(REC_KEY);
+  else if (saved && saved.points && saved.points.length > 5){
     const d = new Date(saved.points[0][0]);
     $("#restoreText").textContent = `Es gibt eine nicht gespeicherte Fahrt vom ${d.toLocaleDateString("de-DE")} um ${d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})} (${fmtTime(saved.activeSec)}).`;
     $("#restore").hidden = false;
