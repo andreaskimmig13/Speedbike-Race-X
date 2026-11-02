@@ -8,12 +8,16 @@
  *   STRAVA_CLIENT_ID      Client-ID deiner Strava-API-Anwendung
  *   STRAVA_CLIENT_SECRET  Client-Secret deiner Strava-API-Anwendung
  *   WEBAPP_URL            Adresse dieser Web-App (endet auf /exec)
+ * Optional:
+ *   APP_URL               Adresse der Speed-Race-App (Standard: GitHub Pages von andreaskimmig13)
  * Diese Werte legt das Script selbst an:
  *   UPLOAD_KEY, ACCESS_TOKEN, REFRESH_TOKEN, EXPIRES_AT
  */
 
 const PROPS = PropertiesService.getScriptProperties();
 const cfg_ = k => PROPS.getProperty(k);
+const appUrl_ = () => cfg_('APP_URL') || 'https://andreaskimmig13.github.io/Speedbike-Race-X/';
+const setupLink_ = () => appUrl_() + '?stravaUrl=' + encodeURIComponent(cfg_('WEBAPP_URL')) + '&stravaKey=' + uploadKey_();
 
 /** Im Editor ausführen: zeigt den Strava-Link und den Schlüssel für die App im Ausführungsprotokoll. */
 function einrichten() {
@@ -31,13 +35,19 @@ function einrichten() {
     + '&redirect_uri=' + encodeURIComponent(url)
     + '&state=' + key;
   Logger.log('SCHRITT 1 – diesen Link im Browser öffnen und bei Strava „Autorisieren“ tippen:\n\n' + link);
-  Logger.log('SCHRITT 2 – diesen Schlüssel in der Speed-Race-App eintragen:\n\n' + key);
-  Logger.log('Script-Adresse für die App:\n\n' + url);
+  Logger.log('Nach dem Autorisieren zeigt Strava dir einen QR-Code zum Einrichten der App.');
+  Logger.log('Falls du die App lieber von Hand einrichtest – Script-Adresse:\n\n' + url + '\n\nSchlüssel:\n\n' + key);
+  Logger.log('Oder diesen Einrichtungslink am Handy öffnen:\n\n' + setupLink_());
 }
 
 /** Optional im Editor ausführen: prüft, ob die Verbindung zu Strava steht. */
 function verbindungTesten() {
   Logger.log(JSON.stringify(ping_()));
+}
+
+/** Optional: zeigt den Einrichtungslink für die App noch einmal an (z. B. für ein neues Handy). */
+function appLinkAnzeigen() {
+  Logger.log('Diesen Link am Handy öffnen:\n\n' + setupLink_());
 }
 
 /** Optional: neuen Schlüssel erzeugen (danach in der App neu eintragen). */
@@ -67,12 +77,34 @@ function doGet(e) {
       const t = tokenRequest_({ code: p.code, grant_type: 'authorization_code' });
       saveTokens_(t);
       const name = t.athlete ? ((t.athlete.firstname || '') + ' ' + (t.athlete.lastname || '')).trim() : '';
-      return page_('Mit Strava verbunden', 'Verbunden' + (name ? ' als ' + name : '') + '. Du kannst dieses Fenster schließen. In der Speed-Race-App jetzt „Verbindung prüfen“ tippen.');
+      return successPage_(name);
     } catch (err) {
       return page_('Fehler', String(err.message || err));
     }
   }
   return page_('Speed Race X Upload', 'Das Upload-Script ist bereitgestellt. Die Einrichtung startest du im Script-Editor mit der Funktion „einrichten“.');
+}
+
+function successPage_(name) {
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const link = setupLink_();
+  const html =
+    '<div style="font:16px/1.5 system-ui,sans-serif;max-width:560px;margin:32px auto;padding:0 16px;color:#15202b">' +
+    '<h1 style="font-size:22px;margin:0 0 8px">Mit Strava verbunden</h1>' +
+    '<p style="margin:0 0 20px">' + (name ? 'Dein Strava-Konto <b>' + esc(name) + '</b> ist verbunden.' : 'Dein Strava-Konto ist verbunden.') + ' Jetzt noch die App am Handy einrichten:</p>' +
+    '<ol style="padding-left:20px;margin:0 0 20px">' +
+    '<li>Am Handy die <b>Kamera-App</b> öffnen und auf den QR-Code richten.</li>' +
+    '<li>Auf den Link tippen, der über dem QR-Code erscheint. Die Speed-Race-App öffnet sich in Chrome.</li>' +
+    '<li>In der App erscheint „Strava-Upload eingerichtet“. Dort auf <b>„Verbindung prüfen“</b> tippen.</li></ol>' +
+    '<div id="qr" style="padding:12px;background:#fff;display:inline-block;border:1px solid #d5dce4;border-radius:8px"></div>' +
+    '<p style="margin:20px 0 6px">Kein QR-Scanner? Diesen Link an dich selbst schicken und am Handy öffnen:</p>' +
+    '<p style="word-break:break-all;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace;background:#eef1f4;padding:10px;border-radius:8px">' + esc(link) + '</p>' +
+    '<p style="margin:16px 0 0"><a href="' + esc(link) + '" target="_blank" rel="noopener">App auf diesem Gerät öffnen</a></p>' +
+    '</div>' +
+    '<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>' +
+    '<script>try{new QRCode(document.getElementById("qr"),{text:' + JSON.stringify(link) + ',width:240,height:240,correctLevel:QRCode.CorrectLevel.M});}' +
+    'catch(e){document.getElementById("qr").textContent="QR-Code konnte nicht geladen werden. Bitte den Link darunter verwenden.";}</script>';
+  return HtmlService.createHtmlOutput(html).setTitle('Mit Strava verbunden').addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
 
 function page_(title, text) {

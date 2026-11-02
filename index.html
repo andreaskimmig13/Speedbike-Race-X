@@ -150,6 +150,11 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     <p><strong>Bluetooth ist in diesem Browser nicht verfügbar.</strong> Öffne die Seite in Chrome auf Android, Windows oder Mac. In der Claude-App, in Firefox und auf dem iPhone funktioniert Web Bluetooth nicht.</p>
   </div>
 
+  <div id="setupNote" class="note restore" hidden style="border-left-color:var(--live)">
+    <p><strong>Strava-Upload eingerichtet.</strong> Unten bei „Fahrt“ → „Strava-Upload einrichten“ einmal auf „Verbindung prüfen“ tippen. Danach erscheint nach jedem Training der Knopf „Zu Strava hochladen“.</p>
+    <div class="bar"><button id="setupGo" class="primary" type="button">Jetzt prüfen</button></div>
+  </div>
+
   <div id="restore" class="note restore" hidden>
     <p id="restoreText">Es gibt eine nicht gespeicherte Fahrt.</p>
     <div class="bar">
@@ -1207,6 +1212,11 @@ ${laps}
     if (!j.ok) throw new Error(j.error || "Unbekannter Fehler");
     return j;
   }
+  $("#setupGo").addEventListener("click", () => {
+    $("#stravaSetup").scrollIntoView({ behavior:"smooth", block:"center" });
+    $("#stPing").click();
+    $("#setupNote").hidden = true;
+  });
   $("#stPing").addEventListener("click", async () => {
     readCfg();
     const m = $("#stPingMsg"); m.textContent = "Prüfe …";
@@ -1239,6 +1249,22 @@ ${laps}
       $("#stravaMsg").classList.remove("good");
     }finally{ b.disabled = false; renderRide(); }
   });
+
+  // Einrichtungslink aus dem Apps Script: ?stravaUrl=…&stravaKey=…
+  (() => {
+    let q; try{ q = new URLSearchParams(location.search); }catch(e){ return; }
+    const u = q.get("stravaUrl"), k = q.get("stravaKey");
+    if (!u || !k) return;
+    try{ history.replaceState(null, "", location.pathname); }catch(e){}
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u) || !/^[\w-]{16,64}$/.test(k)){
+      stravaMsg("Der Einrichtungslink ist unvollständig. Bitte den Link aus dem Apps Script erneut öffnen."); return;
+    }
+    stravaCfg.url = u; stravaCfg.key = k;
+    store.set("srx.strava.url", u); store.set("srx.strava.key", k);
+    $("#stUrl").value = u; $("#stKey").value = k;
+    $("#stravaSetup").open = true;
+    $("#setupNote").hidden = false;
+  })();
 
   /* ---------- Wiederherstellen ---------- */
   const saved = store.get(REC_KEY);
