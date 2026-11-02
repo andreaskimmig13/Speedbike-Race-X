@@ -87,6 +87,8 @@ button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid
 .restore{display:flex;flex-direction:column;gap:10px}
 
 .settings{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.settings select{font:600 1rem var(--f-body);padding:8px 10px;border-radius:8px;border:1px solid var(--line);
+  background:var(--bg);color:var(--ink);min-height:44px;max-width:100%}
 .settings input{width:5.5em;font:600 1rem var(--f-body);padding:8px 10px;border-radius:8px;border:1px solid var(--line);
   background:var(--bg);color:var(--ink);min-height:44px}
 
@@ -183,11 +185,25 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
       <input id="weight" type="number" inputmode="decimal" min="40" max="160" step="1" value="80">
       <span class="small">kg</span>
     </div>
+    <div class="settings">
+      <label for="wattSrc" class="small">Watt für Anzeige und Aufzeichnung</label>
+      <select id="wattSrc">
+        <option value="table">Tabelle (gemessen, empfohlen)</option>
+        <option value="bike">Wert vom Bike</option>
+      </select>
+    </div>
   </div>
 
   <details>
     <summary>Diagnose</summary>
     <div class="diag">
+      <section>
+        <h2>Verbindung</h2>
+        <div class="mono" id="drops">Noch keine Abbrüche.</div>
+        <label class="small" style="display:flex;gap:8px;align-items:center">
+          <input type="checkbox" id="subAll"> Alle Bike-Merkmale abonnieren (nur zur Fehlersuche, kann Abbrüche verursachen)
+        </label>
+      </section>
       <section>
         <h2>Gefundene Dienste</h2>
         <div class="mono" id="services">Noch nichts verbunden.</div>
@@ -278,12 +294,13 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
 
   /* ---------- Zustand ---------- */
   const live = {};
-  let levelScale = null, manualLevel = Number(store.get("srx.level")) || 20, wakeLock = null;
+  let manualLevel = Number(store.get("srx.level")) || 20, wakeLock = null;
   $("#lvlManual").textContent = manualLevel;
   const rep = { device:"", info:{}, services:[], reads:{}, samples:{}, range:null };
   const rawLines = [];
   const setLive = (k, v, src) => { if (v == null || Number.isNaN(v)) return; live[k] = { v, src, t: Date.now() }; };
-  const fresh = k => { const x = live[k]; return x && Date.now() - x.t < 4000 ? x : null; };
+  const fresh = (k, ms = 4000) => { const x = live[k]; return x && Date.now() - x.t < ms ? x : null; };
+  let wattSrc = store.get("srx.wattsrc") === "bike" ? "bike" : "table";
 
   /* ---------- Parser ---------- */
   function reader(dv){
@@ -318,7 +335,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
       if (f & 4) setLive("cad", r.u16()/2, "Bike");
       if (f & 8) r.skip(2);
       if (f & 16) r.skip(3);
-      if (f & 32){ const raw = r.s16(); const sc = levelScale ?? (raw > 32 ? 10 : 1); setLive("lvl", raw/sc, "vom Bike"); }
+      if (f & 32){ const raw = r.s16(); setLive("lvl", raw > 40 ? raw/10 : raw, "vom Bike"); }
       if (f & 64) setLive("pow", r.s16(), "Bike");
       if (f & 128) r.skip(2);
       if (f & 256) r.skip(5);
@@ -347,12 +364,17 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
 
   /* ---------- Aktuelle Werte ---------- */
   function current(){
-    const cad = fresh("cad"), lvl = fresh("lvl"), pow = fresh("pow"), hr = fresh("hr");
+    // Während das Bike neu verbindet, die letzten Werte bis 15 s weiterverwenden
+    const reconnecting = bike.wanted && bike.dev && !bike.dev.gatt.connected;
+    const ms = reconnecting ? 15000 : 4000;
+    const cad = fresh("cad", ms), lvl = fresh("lvl", ms), pow = fresh("pow", ms), hr = fresh("hr", hrConnected ? 4000 : 15000);
     const level = lvl ? lvl.v : manualLevel;
     const rpm = cad ? cad.v : 0;
-    let w = cad ? wattFromTable(level, rpm) : null;
-    if (w == null && pow) w = pow.v;
-    return { cad, lvl, pow, hr, level, rpm, w: w ?? 0, wKnown: w != null };
+    let w = null, wFrom = "";
+    if (wattSrc === "bike" && pow){ w = pow.v; wFrom = "vom Bike"; }
+    else if (cad){ w = wattFromTable(level, rpm); wFrom = `Tabelle · Stufe ${Math.round(level)} · ${Math.round(rpm)} U/min`; }
+    else if (pow){ w = pow.v; wFrom = "vom Bike"; }
+    return { cad, lvl, pow, hr, level, rpm, w: w ?? 0, wKnown: w != null, wFrom, reconnecting };
   }
 
   /* ---------- Anzeige ---------- */
@@ -365,7 +387,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
   }
   function render(){
     const c = current();
-    tile("#t-w", c.wKnown ? c.w : "–", "W", c.cad ? `Tabelle · Stufe ${Math.round(c.level)} · ${Math.round(c.rpm)} U/min` : "braucht Trittfrequenz");
+    tile("#t-w", c.wKnown ? Math.round(c.w) : "–", "W", c.reconnecting ? "Verbindung verloren, halte letzten Wert" : (c.wKnown ? c.wFrom : "braucht Trittfrequenz"));
     tile("#t-cad", c.cad ? Math.round(c.cad.v) : "–", "U/min", c.cad ? "vom Bike" : "", !c.cad && live.cad);
     tile("#t-hr", c.hr ? c.hr.v : "–", "bpm", c.hr ? c.hr.src : "", !c.hr && live.hr);
     tile("#t-lvl", c.lvl ? (Number.isInteger(c.lvl.v) ? c.lvl.v : c.lvl.v.toFixed(1)) : manualLevel, "/ 32", c.lvl ? "vom Bike" : "manuell eingestellt");
@@ -393,6 +415,12 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
         (rep.reads[short(c.uuid)] ? `\n      = ${rep.reads[short(c.uuid)]}` : "")).join("\n")
     ).join("\n\n") : "Keine lesbaren Dienste gefunden.";
   }
+  function renderDrops(){
+    const fmt = d => d.toLocaleTimeString("de-DE");
+    const line = (n, l) => l && l.drops.length ? `${n}: ${l.drops.length} Abbrüche (${l.drops.slice(-8).map(fmt).join(", ")})` : `${n}: keine Abbrüche`;
+    $("#drops").textContent = [line("Bike", bike), line("Puls", hr)].join("\n");
+    buildReport();
+  }
   function buildReport(){
     const has = k => live[k] ? `ja (${live[k].src})` : "nein";
     const lines = [
@@ -404,6 +432,9 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
       `Erkannt: Trittfrequenz ${has("cad")}, Stufe ${has("lvl")}, Watt ${has("pow")}, Tempo ${has("spd")}, Puls ${has("hr")}`,
       live.lvl ? `Letzte Stufe: ${live.lvl.v}` : "", live.cad ? `Letzte Trittfrequenz: ${Math.round(live.cad.v)}` : "",
       live.pow ? `Letzte Watt vom Bike: ${live.pow.v}` : "",
+      typeof bike !== "undefined" ? `Abbrüche Bike: ${bike.drops.length}${bike.drops.length ? " (" + bike.drops.slice(-8).map(d => d.toLocaleTimeString("de-DE")).join(", ") + ")" : ""}` : "",
+      typeof hr !== "undefined" ? `Abbrüche Puls: ${hr.drops.length}` : "",
+      `Alle Merkmale abonniert: ${$("#subAll").checked ? "ja" : "nein"}`,
       "",
       "Dienste:",
       ...rep.services.flatMap(s => [`${short(s.uuid)} ${nameOf(s.uuid)}`,
@@ -429,7 +460,8 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
 
   // Gemeinsame Logik: verbinden, bei Abbruch automatisch neu verbinden
   function makeLink(name, statusEl, btn, setup){
-    const link = { dev:null, wanted:false, tries:0 };
+    const link = { dev:null, wanted:false, tries:0, drops:[] };
+    const okText = () => `Verbunden: ${link.dev.name || name}` + (link.drops.length ? ` · ${link.drops.length}× neu verbunden` : "");
     link.attach = async dev => {
       link.dev = dev; link.wanted = true; link.tries = 0;
       dev.addEventListener("gattserverdisconnected", () => link.lost());
@@ -441,7 +473,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
         const server = await link.dev.gatt.connect();
         await setup(server, link.dev);
         link.tries = 0;
-        setStatus(statusEl, `Verbunden: ${link.dev.name || name}`, "on");
+        setStatus(statusEl, okText(), "on");
         btn.textContent = "Trennen"; btn.classList.remove("primary");
         keepAwake();
       }catch(e){
@@ -451,22 +483,36 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     };
     link.lost = () => {
       if (!link.wanted){ setStatus(statusEl, "Getrennt", ""); btn.textContent = `${name} verbinden`; return; }
+      link.drops.push(new Date());
+      renderDrops();
       setStatus(statusEl, "Verbindung verloren, verbinde neu …", "err");
       link.retry();
     };
     link.retry = () => {
-      if (!link.wanted || link.tries >= 6){
+      if (!link.wanted || link.tries >= 60){
         if (link.wanted) setStatus(statusEl, "Keine Verbindung. Tippe auf Verbinden.", "err");
         link.wanted = false; btn.textContent = `${name} verbinden`; return;
       }
       link.tries++;
-      setTimeout(() => { if (link.wanted && !link.dev.gatt.connected) link.open(); }, 2000 * link.tries);
+      setTimeout(() => { if (link.wanted && !link.dev.gatt.connected) link.open(); }, Math.min(8000, 1000 * link.tries));
     };
     link.close = () => { link.wanted = false; try{ link.dev?.gatt?.disconnect(); }catch(e){} };
     return link;
   }
 
+  function listen(ch, fn){
+    if (ch._srx) return; ch._srx = true;
+    ch.addEventListener("characteristicvaluechanged", ev => fn(ev.target.value));
+  }
+  let bikeScanned = false;
   const bike = makeLink("Bike", $("#bikeStatus"), $("#bikeBtn"), async (server, dev) => {
+    const subAll = $("#subAll").checked;
+    if (bikeScanned && !subAll){
+      const ch = await (await server.getPrimaryService(0x1826)).getCharacteristic(0x2ad2);
+      listen(ch, dv => { addRaw(ch.uuid, dv); parseIBD(dv); });
+      await ch.startNotifications();
+      return;
+    }
     rep.device = dev.name || "(ohne Namen)"; rep.services = []; rep.reads = {}; rep.info = {};
     const services = await server.getPrimaryServices();
     for (const svc of services){
@@ -486,28 +532,25 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
             if (isText && nameOf(ch.uuid)) rep.info[nameOf(ch.uuid)] = rep.reads[s];
             if (s === "0x2AD6" && v.byteLength >= 6){
               rep.range = { min: v.getInt16(0,true), max: v.getInt16(2,true), inc: v.getUint16(4,true) };
-              levelScale = rep.range.max > 32 ? rep.range.max / 32 : 1;
             }
           }catch(e){}
         }
-        if (p.notify || p.indicate){
+        if ((p.notify || p.indicate) && (subAll || PARSERS[s])){
           try{
-            ch.addEventListener("characteristicvaluechanged", ev => {
-              const dv = ev.target.value; addRaw(ch.uuid, dv);
-              const fn = PARSERS[s]; if (fn) fn(dv);
-            });
+            listen(ch, dv => { addRaw(ch.uuid, dv); const fn = PARSERS[s]; if (fn) fn(dv); });
             await ch.startNotifications();
           }catch(e){ props.push("Abo fehlgeschlagen"); }
         }
       }
     }
+    bikeScanned = true;
     renderServices(); buildReport();
   });
 
   const hr = makeLink("Puls", $("#hrStatus"), $("#hrBtn"), async (server, dev) => {
     const svc = await server.getPrimaryService("heart_rate");
     const ch = await svc.getCharacteristic("heart_rate_measurement");
-    ch.addEventListener("characteristicvaluechanged", ev => parseHR(ev.target.value, dev.name || "Pulsmesser"));
+    listen(ch, dv => parseHR(dv, dev.name || "Pulsmesser"));
     await ch.startNotifications();
     hrConnected = true;
   });
@@ -649,6 +692,8 @@ ${tp}
   const setManual = d => { manualLevel = Math.min(32, Math.max(1, manualLevel + d)); $("#lvlManual").textContent = manualLevel; store.set("srx.level", manualLevel); render(); };
   $("#lvlDown").addEventListener("click", () => setManual(-1));
   $("#lvlUp").addEventListener("click", () => setManual(1));
+  $("#wattSrc").value = wattSrc;
+  $("#wattSrc").addEventListener("change", e => { wattSrc = e.target.value; store.set("srx.wattsrc", wattSrc); render(); });
   $("#weight").addEventListener("change", e => { const v = Number(e.target.value); if (v >= 40 && v <= 160){ weightKg = v; store.set("srx.weight", v); } else e.target.value = weightKg; });
   $("#copy").addEventListener("click", async () => {
     buildReport(); const t = $("#report");
