@@ -260,7 +260,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
       <div class="stat"><div class="lab">Arbeit</div><div class="v" id="sKj">0<small>kJ</small></div></div>
     </div>
     <div class="bar">
-      <button id="bStart" type="button">Freie Fahrt starten</button>
+      <button id="bStart" type="button">Nur aufzeichnen</button>
       <button id="bPause" type="button" hidden>Pause</button>
       <button id="bResume" class="primary" type="button" hidden>Weiter</button>
       <button id="bStop" type="button" hidden>Beenden</button>
@@ -817,9 +817,10 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     P(7,"B","30/30 2 × 12", f => `2 Sätze à 12 × 30" bei ${R(1.3*f)} W und 30" locker, 5' Satzpause.`, [...warm(), ...thirty(12), pause(5), ...thirty(12), ...cool()]),
     P(8,"A","Locker mit Aktivierung", f => `25' locker bei ${R(.6*f)} W, dann 3 × 1' bei ${R(f)} W.`, [S(5,.50,"Einfahren","warm"), S(25,.60,"Locker"), ...reps(3,S(1,1.0,"Aktivierung"),pause(2)), ...cool(5)]),
     P(8,"B","FTP-Test", f => `Abschlusstest. Die App startet bei ca. ${R(f)} W, danach regelst du selbst.`, test()),
-    { id:"free", name:"Freie Fahrt mit Zielwatt", free:true, d: f => `Du gibst die Watt vor und änderst sie während der Fahrt mit − und +. Start bei ${R(.65*f)} W.`,
-      segs:[{ sec:Infinity, pct:.65, label:"Freie Fahrt", kind:"free" }] }
   ];
+  PLAN.unshift({ id:"free", name:"Nur Zielwatt (ohne Ablauf, ohne Zeitlimit)", free:true,
+    d: f => `Kein vorgegebener Ablauf. Du stellst die Zielwatt mit − und + ein (5-W-Schritte), die App hält sie über die Stufe. Die Uhr zählt hoch, du beendest selbst. Start bei ${R(.65*f)} W.`,
+    segs:[{ sec:Infinity, pct:.65, label:"Zielwatt", kind:"free" }] });
   const totalMin = segs => R(segs.reduce((a,s) => a + s.sec, 0) / 60);
 
   let ftp = Number(store.get("srx.ftp")) || 230;
@@ -987,7 +988,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     else lt = `Stell Stufe ${erg.level} ein` + (mode === "erg" ? ` (passend zu ${R(avgCad() || PLAN_CAD)} U/min)` : ` für ca. ${PLAN_CAD} U/min`) + (lvlNow != null && lvlNow !== erg.level ? ` · gerade Stufe ${lvlNow}` : "");
     $("#segLevel").textContent = lt;
     const n = wo.segs[wo.idx + 1];
-    $("#segNext").textContent = n ? `Danach: ${n.label}, ${minText(n.sec)}` + (n.kind === "test" ? "" : ` bei ${R(n.pct * ftp * wo.intensity)} W`) : (isFinite(s.sec) ? "Danach: Ende" : "Beenden über „Beenden“ unten bei der Fahrt.");
+    $("#segNext").textContent = n ? `Danach: ${n.label}, ${minText(n.sec)}` + (n.kind === "test" ? "" : ` bei ${R(n.pct * ftp * wo.intensity)} W`) : (isFinite(s.sec) ? "Danach: Ende" : "Beenden über „Beenden“ unten bei der Fahrt. Die Zielwatt änderst du mit − und +.");
     $("#intVal").textContent = s.kind === "free" ? `${R(wo.freeTarget)} W` : `${R(wo.intensity * 100)} %`;
     $("#intDown").setAttribute("aria-label", s.kind === "free" ? "5 Watt weniger" : "2 Prozent leichter");
     $("#intUp").setAttribute("aria-label", s.kind === "free" ? "5 Watt mehr" : "2 Prozent schwerer");
@@ -1101,7 +1102,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
   }
   function saveRide(){ if (rec.points.length) store.set(REC_KEY, { points:rec.points, activeSec:rec.activeSec, dist:rec.dist, work:rec.work, laps:rec.laps, name:rec.name }); }
 
-  $("#bStart").addEventListener("click", () => { initAudio(); rec = newRide(); rec.state = "run"; rec.last = Date.now(); rec.name = "Freie Fahrt"; keepAwake(); renderRide(); });
+  $("#bStart").addEventListener("click", () => { initAudio(); rec = newRide(); rec.state = "run"; rec.last = Date.now(); rec.name = "Indoor-Fahrt"; keepAwake(); renderRide(); });
   $("#bPause").addEventListener("click", () => { rec.state = "pause"; saveRide(); renderRide(); });
   $("#bResume").addEventListener("click", () => { rec.state = "run"; rec.last = Date.now(); keepAwake(); renderRide(); });
   $("#bStop").addEventListener("click", () => { if (wo.active) finishWorkout(); else { rec.state = "done"; saveRide(); renderRide(); } });
