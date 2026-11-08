@@ -126,6 +126,10 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
 
 .text-in{font:1rem var(--f-mono);padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%;min-height:44px}
 .sub-details{background:var(--bg);padding:10px 14px}
+.calgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.calgrid label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem;color:var(--muted);
+  background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:4px 4px 4px 10px}
+.num-in{font:600 1rem var(--f-body);width:5em;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);min-height:40px}
 .callout a{color:var(--accent);font-weight:600}
 details{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 16px}
 summary{cursor:pointer;font:600 1.15rem var(--f-num);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);min-height:32px}
@@ -297,11 +301,53 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     <div class="settings">
       <label for="wattSrc">Watt für Anzeige und Aufzeichnung</label>
       <select id="wattSrc">
-        <option value="table">Tabelle (gemessen, empfohlen)</option>
+        <option value="table">Tabelle mit Kalibrierung (empfohlen)</option>
         <option value="bike">Wert vom Bike</option>
       </select>
     </div>
   </div>
+
+  <details id="calCard">
+    <summary>Watt-Kalibrierung</summary>
+    <div class="diag">
+      <p class="small">Die Tabelle stammt von einem anderen Bike. Hier stellst du pro Stufe einen Korrekturfaktor ein: echte Watt = Tabellenwert × Faktor. Zwischen den Stufen rechnet die App linear. Faktor 1,00 heißt: Tabelle unverändert.</p>
+      <p id="calSummary" class="small"></p>
+      <section>
+        <h2>Code von Claude übernehmen</h2>
+        <div class="bar">
+          <input id="calCode" class="text-in" type="text" autocomplete="off" spellcheck="false" placeholder="SRXCAL1;alle:0.65" style="flex:1 1 220px">
+          <button id="calImport" type="button" class="primary">Übernehmen</button>
+        </div>
+      </section>
+      <section>
+        <h2>Faktoren je Stufe</h2>
+        <div class="calgrid" id="calGrid"></div>
+        <div class="bar">
+          <label class="small" for="calAll">Alle auf</label>
+          <input id="calAll" type="number" step="0.01" min="0.3" max="1.5" value="0.65" class="num-in">
+          <button id="calAllBtn" type="button">Setzen</button>
+          <button id="calSave" type="button" class="primary">Speichern</button>
+          <button id="calReset" type="button">Auf 1,00 zurück</button>
+        </div>
+        <p id="calMsg" class="small" aria-live="polite"></p>
+        <div id="calFtp" class="callout" hidden>
+          <p id="calFtpText"></p>
+          <div class="bar" style="margin-top:8px"><button id="calFtpApply" class="primary" type="button">FTP übernehmen</button></div>
+        </div>
+      </section>
+      <section>
+        <h2>Kalibrierdaten</h2>
+        <p class="small">Die App merkt sich jeden ruhigen Abschnitt ab 3 Minuten mit gleicher Stufe und gleichmäßiger Trittfrequenz: Stufe, Trittfrequenz, Tabellen-Watt und Puls am Ende. Schick sie Claude, dann lassen sich die Faktoren Schritt für Schritt verbessern.</p>
+        <p id="calLogInfo" class="small"></p>
+        <div class="bar">
+          <button id="calCopy" type="button">Kalibrierdaten kopieren</button>
+          <button id="calClear" type="button" class="danger">Daten löschen</button>
+          <span id="calCopyMsg" class="small" aria-live="polite"></span>
+        </div>
+        <textarea id="calOut" readonly aria-label="Kalibrierdaten" hidden></textarea>
+      </section>
+    </div>
+  </details>
 
   <details>
     <summary>Diagnose</summary>
@@ -374,9 +420,31 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     else w = c + (c - b) * (Math.min(rpm,130) - 100) / 20;
     return R(w);
   }
-  function levelFor(target, rpm){
+  /* ---------- Kalibrierung: Faktor je Stufe, dazwischen linear ---------- */
+  const CAL_LEVELS = LV.slice();   // 1,3,5,…,27,30,32 – dieselben Stützstellen wie die Tabelle
+  function loadCalib(){
+    let c = null; try{ c = JSON.parse(localStorage.getItem("srx.calib")); }catch(e){}
+    const out = {};
+    for (const l of CAL_LEVELS){ const f = c && Number(c[l]); out[l] = f > 0.2 && f < 2 ? f : 1; }
+    return out;
+  }
+  let calib = loadCalib();
+  function calFactor(lvl, cal = calib){
+    const l = Math.min(32, Math.max(1, lvl));
+    for (let i = 0; i < CAL_LEVELS.length - 1; i++){
+      const a = CAL_LEVELS[i], b = CAL_LEVELS[i+1];
+      if (l <= b){ const f = (l - a) / (b - a); return cal[a] + f * (cal[b] - cal[a]); }
+    }
+    return cal[32];
+  }
+  const calIsDefault = () => CAL_LEVELS.every(l => calib[l] === 1);
+  function wattReal(lvl, rpm, cal = calib){
+    const w = wattFromTable(lvl, rpm);
+    return w == null ? null : R(w * calFactor(lvl, cal));
+  }
+  function levelFor(target, rpm, cal = calib){
     let best = 1, err = Infinity;
-    for (let l = 1; l <= 32; l++){ const e = Math.abs(wattFromTable(l, rpm) - target); if (e < err){ err = e; best = l; } }
+    for (let l = 1; l <= 32; l++){ const e = Math.abs(wattReal(l, rpm, cal) - target); if (e < err){ err = e; best = l; } }
     return best;
   }
 
@@ -488,7 +556,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     const rpm = cad ? cad.v : 0;
     let w = null, wFrom = "";
     if (wattSrc === "bike" && pow){ w = pow.v; wFrom = "vom Bike"; }
-    else if (cad){ w = wattFromTable(level, rpm); wFrom = `Tabelle · Stufe ${R(level)} · ${R(rpm)} U/min`; }
+    else if (cad){ w = wattReal(level, rpm); wFrom = `${calIsDefault() ? "Tabelle" : "Tabelle × " + calFactor(level).toFixed(2).replace(".", ",")} · Stufe ${R(level)} · ${R(rpm)} U/min`; }
     else if (pow){ w = pow.v; wFrom = "vom Bike"; }
     return { cad, lvl, pow, hr:h, level, rpm, w: w ?? 0, wKnown: w != null, wFrom, reconnecting };
   }
@@ -972,12 +1040,12 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     if (now - erg.lastChange < 12000) return;
     const target = segTarget(s);
     const curLvl = c.lvl ? R(c.lvl.v) : erg.level;
-    const wNow = wattFromTable(curLvl, rpm);
+    const wNow = wattReal(curLvl, rpm);
     const tol = Math.max(8, target * 0.05);
     if (Math.abs(wNow - target) <= tol) return;
     let cand = levelFor(target, rpm);
     cand = Math.max(curLvl - 2, Math.min(curLvl + 2, cand));
-    if (cand !== curLvl && Math.abs(wattFromTable(cand, rpm) - target) < Math.abs(wNow - target) - 3) applyLevel(cand, `Zielwatt bei ${R(rpm)} U/min`);
+    if (cand !== curLvl && Math.abs(wattReal(cand, rpm) - target) < Math.abs(wNow - target) - 3) applyLevel(cand, `Zielwatt bei ${R(rpm)} U/min`);
     else erg.lastChange = now;   // nicht jede Sekunde neu rechnen
   }
 
@@ -1080,8 +1148,34 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
   const newRide = () => ({ state:"idle", points:[], activeSec:0, dist:0, work:0, last:0, laps:[0], name:"" });
   let rec = newRide();
 
+  // Ruhige Abschnitte (gleiche Stufe, gleichmäßige Trittfrequenz, ≥ 3 Min) als Kalibrierdaten sammeln
+  let blk = null;
+  function calLog(){ try{ return JSON.parse(localStorage.getItem("srx.caliblog")) || []; }catch(e){ return []; } }
+  function closeBlock(){
+    if (blk && blk.n >= 180){
+      const hrEnd = blk.hr.slice(-60).filter(x => x > 0), hrStart = blk.hr.slice(0, 30).filter(x => x > 0);
+      const avg = a => a.length ? R(a.reduce((x,y) => x + y, 0) / a.length) : null;
+      const log = calLog();
+      log.push({ d: new Date(blk.t0).toISOString().slice(0,16), lvl: blk.level, rpm: R(blk.rpmSum / blk.n), wt: R(blk.wSum / blk.n), hr: avg(hrEnd), hr0: avg(hrStart), sec: blk.n });
+      try{ localStorage.setItem("srx.caliblog", JSON.stringify(log.slice(-400))); }catch(e){}
+      renderCalLog();
+    }
+    blk = null;
+  }
+  function trackBlock(c){
+    if (!c.lvl || !c.cad || c.rpm < 40 || c.reconnecting){ closeBlock(); return; }
+    const level = R(c.lvl.v), rpm = c.rpm;
+    if (blk && blk.level === level && Math.abs(rpm - blk.rpmSum / blk.n) <= 6){
+      blk.n++; blk.rpmSum += rpm; blk.wSum += wattFromTable(level, rpm); blk.hr.push(c.hr ? R(c.hr.v) : 0);
+    } else {
+      closeBlock();
+      blk = { level, n:1, rpmSum:rpm, wSum:wattFromTable(level, rpm), hr:[c.hr ? R(c.hr.v) : 0], t0:Date.now() };
+    }
+  }
+
   function tick(){
     const c = current();
+    if (rec.state === "run") trackBlock(c); else if (blk) closeBlock();
     if (rec.state === "run"){
       const now = Date.now();
       const dt = Math.min(5, Math.max(0, (now - rec.last) / 1000));
@@ -1171,7 +1265,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
         `<Intensity>Active</Intensity><Cadence>${cads.length ? R(cads.reduce((a,b)=>a+b,0)/cads.length) : 0}</Cadence><TriggerMethod>Manual</TriggerMethod>\n<Track>\n${tp}\n</Track>\n` +
         `<Extensions><ns3:LX><ns3:AvgWatts>${R(work / Math.max(1, lp.length))}</ns3:AvgWatts></ns3:LX></Extensions></Lap>`;
     }).join("\n");
-    const note = (rec.name ? rec.name.replace(/[<&>]/g, "") + ". " : "") + "Hammer Speed Race X. Watt aus Stufe und Trittfrequenz geschaetzt (Tabelle ergometersport.de), Tempo virtuell.";
+    const note = (rec.name ? rec.name.replace(/[<&>]/g, "") + ". " : "") + "Hammer Speed Race X. Watt aus Stufe und Trittfrequenz geschaetzt (Tabelle ergometersport.de" + (calIsDefault() ? "" : ", " + calCode()) + "), Tempo virtuell.";
     return `<?xml version="1.0" encoding="UTF-8"?>
 <TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2">
 <Activities><Activity Sport="Biking"><Id>${iso(pts[0][0])}</Id>
@@ -1228,7 +1322,7 @@ ${laps}
   function rideDescription(){
     const aw = R(rec.work / Math.max(1, rec.activeSec)), ah = avgHr(rec.points);
     return `Ø ${aw} W${ah ? ` · Ø Puls ${ah} bpm` : ""} · ${R(rec.work/1000)} kJ · ${fmtTime(rec.activeSec)}\n` +
-      "Hammer Speed Race X. Watt aus Stufe und Trittfrequenz geschätzt (Messtabelle ergometersport.de).";
+      "Hammer Speed Race X. Watt aus Stufe und Trittfrequenz geschätzt (Messtabelle ergometersport.de" + (calIsDefault() ? ")." : `, kalibriert: ${calCode()}).`);
   }
   $("#bStrava").addEventListener("click", async () => {
     if (!rec.points.length) return;
@@ -1265,6 +1359,114 @@ ${laps}
     $("#stravaSetup").open = true;
     $("#setupNote").hidden = false;
   })();
+
+  /* ---------- Kalibrierung: Oberfläche ---------- */
+  const fmtF = f => f.toFixed(2).replace(".", ",");
+  function calCode(cal = calib){
+    const vals = CAL_LEVELS.map(l => cal[l]);
+    if (vals.every(v => v === vals[0])) return "SRXCAL1;alle:" + vals[0].toFixed(2);
+    return "SRXCAL1;" + CAL_LEVELS.map(l => `${l}:${cal[l].toFixed(2)}`).join(";");
+  }
+  function parseCalCode(txt){
+    const t = String(txt || "").trim().replace(/,(?=\d)/g, ".");
+    if (!/^SRXCAL1;/i.test(t)) throw new Error("Der Code muss mit SRXCAL1; beginnen.");
+    const out = { ...calib };
+    for (const part of t.split(";").slice(1)){
+      if (!part.trim()) continue;
+      const [k, v] = part.split(":").map(x => x.trim());
+      const f = Number(v);
+      if (!(f > 0.2 && f < 2)) throw new Error(`Ungültiger Faktor bei „${part}“.`);
+      if (/^alle$/i.test(k)) CAL_LEVELS.forEach(l => out[l] = f);
+      else if (CAL_LEVELS.includes(Number(k))) out[Number(k)] = f;
+      else throw new Error(`Stufe ${k} gibt es in der Kalibrierung nicht. Erlaubt: ${CAL_LEVELS.join(", ")}.`);
+    }
+    return out;
+  }
+  function renderCalGrid(cal = calib){
+    const g = $("#calGrid"); g.textContent = "";
+    for (const l of CAL_LEVELS){
+      const lab = document.createElement("label");
+      lab.textContent = `Stufe ${l}`;
+      const inp = Object.assign(document.createElement("input"), { type:"number", step:"0.01", min:"0.3", max:"1.5", className:"num-in", value: cal[l].toFixed(2), id:`cal-${l}` });
+      lab.append(inp); g.append(lab);
+    }
+  }
+  function renderCalSummary(){
+    const vals = CAL_LEVELS.map(l => calib[l]);
+    const min = Math.min(...vals), max = Math.max(...vals);
+    $("#calSummary").textContent = calIsDefault()
+      ? "Aktuell: keine Kalibrierung (Faktor 1,00)."
+      : `Aktuell: Faktor ${min === max ? fmtF(min) : fmtF(min) + " bis " + fmtF(max)}. Beispiel Stufe 25 bei 90 U/min: Tabelle ${wattFromTable(25, 90)} W → ${wattReal(25, 90)} W.`;
+  }
+  function gridCal(){
+    const out = {};
+    for (const l of CAL_LEVELS){
+      const f = Number(String($(`#cal-${l}`).value).replace(",", "."));
+      if (!(f > 0.2 && f < 2)) throw new Error(`Faktor bei Stufe ${l} ist ungültig.`);
+      out[l] = +f.toFixed(3);
+    }
+    return out;
+  }
+  function applyCal(newCal, source){
+    // FTP-Vorschlag: gleiche Stufe wie bisher, neue Watt
+    const refLvl = levelFor(ftp, 90, calib);
+    const ratio = calFactor(refLvl, newCal) / calFactor(refLvl, calib);
+    const suggest = R(ftp * ratio);
+    calib = newCal;
+    try{ localStorage.setItem("srx.calib", JSON.stringify(calib)); }catch(e){}
+    renderCalGrid(); renderCalSummary(); render();
+    $("#calMsg").textContent = `${source} gespeichert: ${calCode()}`;
+    if (Math.abs(suggest - ftp) >= 2){
+      $("#calFtpText").textContent = `Dein FTP von ${ftp} W bezog sich auf die alte Kalibrierung. Umgerechnet auf die neue sind das ${suggest} W. Übernehmen, damit die Trainings gleich schwer bleiben? Stammt dein FTP nicht aus einem Test auf der Rolle, trag ihn lieber selbst ein.`;
+      $("#calFtpApply").dataset.ftp = suggest;
+      $("#calFtp").hidden = false;
+    } else $("#calFtp").hidden = true;
+    renderPick();
+  }
+  $("#calImport").addEventListener("click", () => {
+    try{ applyCal(parseCalCode($("#calCode").value), "Code"); $("#calCode").value = ""; }
+    catch(e){ $("#calMsg").textContent = e.message; }
+  });
+  $("#calAllBtn").addEventListener("click", () => {
+    const f = Number(String($("#calAll").value).replace(",", "."));
+    if (!(f > 0.2 && f < 2)){ $("#calMsg").textContent = "Bitte einen Faktor zwischen 0,3 und 1,5 eingeben."; return; }
+    for (const l of CAL_LEVELS) $(`#cal-${l}`).value = f.toFixed(2);
+    $("#calMsg").textContent = "Eingetragen. Zum Übernehmen auf „Speichern“ tippen.";
+  });
+  $("#calSave").addEventListener("click", () => {
+    try{ applyCal(gridCal(), "Kalibrierung"); }catch(e){ $("#calMsg").textContent = e.message; }
+  });
+  $("#calReset").addEventListener("click", () => { const o = {}; CAL_LEVELS.forEach(l => o[l] = 1); applyCal(o, "Kalibrierung"); });
+  $("#calFtpApply").addEventListener("click", e => {
+    const v = Number(e.target.dataset.ftp); if (!v) return;
+    ftp = v; store.set("srx.ftp", v); $("#ftp").value = v; $("#calFtp").hidden = true; renderPick();
+  });
+
+  function renderCalLog(){
+    const log = calLog();
+    $("#calLogInfo").textContent = log.length ? `${log.length} Abschnitte gesammelt, zuletzt am ${new Date(log[log.length-1].d).toLocaleDateString("de-DE")}.` : "Noch keine Abschnitte gesammelt.";
+  }
+  $("#calCopy").addEventListener("click", async () => {
+    const log = calLog();
+    const lines = [
+      "Speed Race X – Kalibrierdaten",
+      `Kalibrierung: ${calCode()}`, `FTP in der App: ${ftp} W`, "",
+      "Datum Uhrzeit (UTC) | Stufe | Ø U/min | Tabellen-W (ohne Faktor) | Puls letzte Minute | Puls Anfang | Dauer s",
+      ...log.map(b => `${b.d.replace("T", " ")} | ${b.lvl} | ${b.rpm} | ${b.wt} | ${b.hr ?? "-"} | ${b.hr0 ?? "-"} | ${b.sec}`)
+    ];
+    const t = $("#calOut"); t.hidden = false; t.value = lines.join("\n");
+    try{ await navigator.clipboard.writeText(t.value); $("#calCopyMsg").textContent = "Kopiert. Jetzt im Chat einfügen."; }
+    catch(e){ t.focus(); t.select(); $("#calCopyMsg").textContent = "Text ist markiert. Kopieren über das Menü."; }
+  });
+  let calClearArmed = null;
+  $("#calClear").addEventListener("click", () => {
+    const b = $("#calClear");
+    if (!calClearArmed){ b.textContent = "Wirklich löschen?"; calClearArmed = setTimeout(() => { calClearArmed = null; b.textContent = "Daten löschen"; }, 4000); return; }
+    clearTimeout(calClearArmed); calClearArmed = null; b.textContent = "Daten löschen";
+    try{ localStorage.removeItem("srx.caliblog"); }catch(e){}
+    renderCalLog();
+  });
+  renderCalGrid(); renderCalSummary(); renderCalLog();
 
   /* ---------- Wiederherstellen ---------- */
   const saved = store.get(REC_KEY);
