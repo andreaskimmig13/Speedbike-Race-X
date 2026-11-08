@@ -923,8 +923,8 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
 
   /* ---------- Kalibrierung von Claude: kommt mit App-Updates und wird automatisch übernommen ---------- */
   const BUILTIN_CAL = {
-    v: 1, stand: "8.11.2026", code: "SRXCAL1;alle:0.65", ftp: 210,
-    info: "Erste Schätzung aus dem FTP-Test vom 8.11. (Puls verglichen mit deinen Anstiegen draußen)."
+    v: 2, stand: "8.11.2026", code: "SRXCAL1;alle:0.65", ftp: 225,
+    info: "Faktor aus dem FTP-Test vom 8.11. (Puls verglichen mit deinen Anstiegen draußen). FTP auf 225 W angehoben, weil im Test noch Reserve war."
   };
   function useBuiltinCal(withFtp){
     calib = parseCalCode(BUILTIN_CAL.code);
