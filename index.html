@@ -822,7 +822,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     { sec:1200, pct:1.0, label:"20-Minuten-Test", kind:"test" }, ...cool(10)];
   const P = (w, u, name, d, segs) => ({ id:`${w}${u}`, w, u, name, d, segs });
   const PLAN = [
-    P(1,"A","FTP-Test", f => `20-Minuten-Test. Die App startet bei ca. ${R(f)} W, danach regelst du selbst. Am Ende gibt es deinen FTP-Wert.`, test()),
+    P(1,"A","FTP-Test", f => `Gesamt 60 Minuten, davon 20 Minuten Test. Der eingetragene FTP-Wert (${R(f)} W) ist nur eine Schätzung: Damit stellt die App Einfahren und Vorbelastung ein und schlägt eine Startstufe vor. Im Test bestimmst du die Stufe selbst. Danach berechnet die App deinen echten FTP.`, test()),
     P(1,"B","Schwelle 3 × 10'", f => `3 × 10' Schwelle bei ${R(.92*f)} W, dazwischen 5' Pause.`, [...warm(), ...reps(3,thr(10),pause(5)), ...cool()]),
     P(2,"A","Schwelle 3 × 10'", f => `3 × 10' Schwelle bei ${R(.92*f)} W, dazwischen 5' Pause.`, [...warm(), ...reps(3,thr(10),pause(5)), ...cool()]),
     P(2,"B","VO2max 5 × 3'", f => `5 × 3' bei ${R(1.13*f)} W, dazwischen 3' Pause.`, [...warm(), ...reps(5,vo2(3),pause(3)), ...cool()]),
@@ -837,7 +837,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     P(7,"A","Schwelle 3 × 15'", f => `3 × 15' bei ${R(.97*f)} W, dazwischen 5' Pause.`, [...warm(), ...reps(3,thr(15,.97),pause(5)), ...cool()]),
     P(7,"B","30/30 2 × 12", f => `2 Sätze à 12 × 30" bei ${R(1.3*f)} W und 30" locker, 5' Satzpause.`, [...warm(), ...thirty(12), pause(5), ...thirty(12), ...cool()]),
     P(8,"A","Locker mit Aktivierung", f => `25' locker bei ${R(.6*f)} W, dann 3 × 1' bei ${R(f)} W.`, [S(5,.50,"Einfahren","warm"), S(25,.60,"Locker"), ...reps(3,S(1,1.0,"Aktivierung"),pause(2)), ...cool(5)]),
-    P(8,"B","FTP-Test", f => `Abschlusstest. Die App startet bei ca. ${R(f)} W, danach regelst du selbst.`, test()),
+    P(8,"B","FTP-Test", f => `Abschlusstest. Gesamt 60 Minuten, davon 20 Minuten Test. Der eingetragene FTP-Wert (${R(f)} W) ist nur eine Schätzung: Damit stellt die App Einfahren und Vorbelastung ein und schlägt eine Startstufe vor. Im Test bestimmst du die Stufe selbst. Danach berechnet die App deinen echten FTP.`, test()),
   ];
   PLAN.unshift({ id:"free", name:"Nur Zielwatt (ohne Ablauf, ohne Zeitlimit)", free:true,
     d: f => `Kein vorgegebener Ablauf. Du stellst die Zielwatt mit −10, −5, +5 und +10 ein, die App hält sie über die Stufe. Die Uhr zählt hoch, du beendest selbst. Start bei ${R(.65*f)} W.`,
@@ -872,7 +872,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
   }
   function renderPick(){
     const u = unit();
-    $("#unitDesc").textContent = u.d(ftp) + (u.free ? "" : ` Plus Ein- und Ausfahren, gesamt ${totalMin(u.segs)} Minuten.`);
+    $("#unitDesc").textContent = u.d(ftp) + (u.free || u.name === "FTP-Test" ? "" : ` Plus Ein- und Ausfahren, gesamt ${totalMin(u.segs)} Minuten.`);
     drawProfile($("#pickProfile"), u.segs);
     $("#modeHint").textContent = mode === "erg"
       ? "Zielwatt: Die App passt die Stufe an deine Trittfrequenz an, damit die Watt ungefähr stimmen."
