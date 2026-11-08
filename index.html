@@ -154,6 +154,11 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     <p><strong>Bluetooth ist in diesem Browser nicht verfügbar.</strong> Öffne die Seite in Chrome auf Android, Windows oder Mac. In der Claude-App, in Firefox und auf dem iPhone funktioniert Web Bluetooth nicht.</p>
   </div>
 
+  <div id="calNote" class="note restore" hidden style="border-left-color:var(--live)">
+    <p id="calNoteText"></p>
+    <div class="bar"><button id="calNoteOk" type="button">OK</button></div>
+  </div>
+
   <div id="setupNote" class="note restore" hidden style="border-left-color:var(--live)">
     <p><strong>Strava-Upload eingerichtet.</strong> Unten bei „Fahrt“ → „Strava-Upload einrichten“ einmal auf „Verbindung prüfen“ tippen. Danach erscheint nach jedem Training der Knopf „Zu Strava hochladen“.</p>
     <div class="bar"><button id="setupGo" class="primary" type="button">Jetzt prüfen</button></div>
@@ -310,7 +315,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
   <details id="calCard">
     <summary>Watt-Kalibrierung</summary>
     <div class="diag">
-      <p class="small">Die Tabelle stammt von einem anderen Bike. Hier stellst du pro Stufe einen Korrekturfaktor ein: echte Watt = Tabellenwert × Faktor. Zwischen den Stufen rechnet die App linear. Faktor 1,00 heißt: Tabelle unverändert.</p>
+      <p class="small">Die Tabelle stammt von einem anderen Bike. Deshalb gibt es pro Stufe einen Korrekturfaktor: echte Watt = Tabellenwert × Faktor. Claude passt die Faktoren anhand deiner Strava-Fahrten an, neue Werte kommen mit App-Updates automatisch. Du musst hier nichts tun.</p>
       <p id="calSummary" class="small"></p>
       <section>
         <h2>Code von Claude übernehmen</h2>
@@ -328,6 +333,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
           <button id="calAllBtn" type="button">Setzen</button>
           <button id="calSave" type="button" class="primary">Speichern</button>
           <button id="calReset" type="button">Auf 1,00 zurück</button>
+          <button id="calBuiltin" type="button" hidden>Kalibrierung von Claude verwenden</button>
         </div>
         <p id="calMsg" class="small" aria-live="polite"></p>
         <div id="calFtp" class="callout" hidden>
@@ -914,6 +920,28 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
 
   let ftp = Number(store.get("srx.ftp")) || 230;
   $("#ftp").value = ftp;
+
+  /* ---------- Kalibrierung von Claude: kommt mit App-Updates und wird automatisch übernommen ---------- */
+  const BUILTIN_CAL = {
+    v: 1, stand: "8.11.2026", code: "SRXCAL1;alle:0.65", ftp: 210,
+    info: "Erste Schätzung aus dem FTP-Test vom 8.11. (Puls verglichen mit deinen Anstiegen draußen)."
+  };
+  function useBuiltinCal(withFtp){
+    calib = parseCalCode(BUILTIN_CAL.code);
+    try{ localStorage.setItem("srx.calib", JSON.stringify(calib)); }catch(e){}
+    store.set("srx.calib.v", BUILTIN_CAL.v); store.set("srx.calib.src", "builtin");
+    if (withFtp && BUILTIN_CAL.ftp){ ftp = BUILTIN_CAL.ftp; store.set("srx.ftp", ftp); $("#ftp").value = ftp; }
+  }
+  (() => {
+    if (store.get("srx.calib.src") === "manual") return;
+    if ((Number(store.get("srx.calib.v")) || 0) >= BUILTIN_CAL.v) return;
+    try{
+      useBuiltinCal(true);
+      $("#calNoteText").textContent = `Watt-Kalibrierung von Claude übernommen (Stand ${BUILTIN_CAL.stand}). ${BUILTIN_CAL.info} Dein FTP ist jetzt ${ftp} W.`;
+      $("#calNote").hidden = false;
+    }catch(e){}
+  })();
+  $("#calNoteOk").addEventListener("click", () => { $("#calNote").hidden = true; });
   let mode = store.get("srx.mode") === "level" ? "level" : "erg";
   $(mode === "erg" ? "#modeErg" : "#modeLvl").checked = true;
 
@@ -1394,9 +1422,11 @@ ${laps}
   function renderCalSummary(){
     const vals = CAL_LEVELS.map(l => calib[l]);
     const min = Math.min(...vals), max = Math.max(...vals);
+    const src = store.get("srx.calib.src") === "manual" ? "von dir angepasst" : `von Claude, Stand ${BUILTIN_CAL.stand}`;
     $("#calSummary").textContent = calIsDefault()
       ? "Aktuell: keine Kalibrierung (Faktor 1,00)."
-      : `Aktuell: Faktor ${min === max ? fmtF(min) : fmtF(min) + " bis " + fmtF(max)}. Beispiel Stufe 25 bei 90 U/min: Tabelle ${wattFromTable(25, 90)} W → ${wattReal(25, 90)} W.`;
+      : `Aktuell (${src}): Faktor ${min === max ? fmtF(min) : fmtF(min) + " bis " + fmtF(max)}. Beispiel Stufe 25 bei 90 U/min: Tabelle ${wattFromTable(25, 90)} W → ${wattReal(25, 90)} W.`;
+    $("#calBuiltin").hidden = store.get("srx.calib.src") !== "manual";
   }
   function gridCal(){
     const out = {};
@@ -1414,6 +1444,7 @@ ${laps}
     const suggest = R(ftp * ratio);
     calib = newCal;
     try{ localStorage.setItem("srx.calib", JSON.stringify(calib)); }catch(e){}
+    store.set("srx.calib.src", calCode(newCal) === calCode(parseCalCode(BUILTIN_CAL.code)) ? "builtin" : "manual");
     renderCalGrid(); renderCalSummary(); render();
     $("#calMsg").textContent = `${source} gespeichert: ${calCode()}`;
     if (Math.abs(suggest - ftp) >= 2){
@@ -1437,6 +1468,7 @@ ${laps}
     try{ applyCal(gridCal(), "Kalibrierung"); }catch(e){ $("#calMsg").textContent = e.message; }
   });
   $("#calReset").addEventListener("click", () => { const o = {}; CAL_LEVELS.forEach(l => o[l] = 1); applyCal(o, "Kalibrierung"); });
+  $("#calBuiltin").addEventListener("click", () => { applyCal(parseCalCode(BUILTIN_CAL.code), "Kalibrierung von Claude"); store.set("srx.calib.v", BUILTIN_CAL.v); renderCalSummary(); });
   $("#calFtpApply").addEventListener("click", e => {
     const v = Number(e.target.dataset.ftp); if (!v) return;
     ftp = v; store.set("srx.ftp", v); $("#ftp").value = v; $("#calFtp").hidden = true; renderPick();
