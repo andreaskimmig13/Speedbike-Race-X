@@ -129,6 +129,12 @@ button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visi
 
 .text-in{font:1rem var(--f-mono);padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%;min-height:44px}
 .sub-details{background:var(--bg);padding:10px 14px}
+.calhist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+.calhist li{border-left:3px solid var(--line);padding:2px 0 2px 12px;display:flex;flex-direction:column;gap:2px}
+.calhist li.now{border-left-color:var(--accent)}
+.calhist .h-head{font-weight:600}
+.calhist .h-meta{font-size:.8rem;color:var(--muted)}
+.calhist .h-text{font-size:.9rem;max-width:65ch}
 .calgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
 .calgrid label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:.85rem;color:var(--muted);
   background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:4px 4px 4px 10px}
@@ -321,6 +327,10 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     <div class="diag">
       <p class="small">Die Tabelle stammt von einem anderen Bike. Deshalb gibt es pro Stufe einen Korrekturfaktor: echte Watt = Tabellenwert × Faktor. Claude passt die Faktoren anhand deiner Strava-Fahrten an, neue Werte kommen mit App-Updates automatisch. Du musst hier nichts tun.</p>
       <p id="calSummary" class="small"></p>
+      <section>
+        <h2>Verlauf</h2>
+        <ol id="calHist" class="calhist"></ol>
+      </section>
       <section>
         <h2>Code von Claude übernehmen</h2>
         <div class="bar">
@@ -1543,7 +1553,28 @@ ${laps}
     try{ localStorage.removeItem("srx.caliblog"); }catch(e){}
     renderCalLog();
   });
-  renderCalGrid(); renderCalSummary(); renderCalLog();
+  /* Verlauf der Kalibrierung: was sich geändert hat und warum (neueste oben) */
+  const CAL_HISTORY = [
+    { datum:"8.11.2026", v:1, titel:"Erste Kalibrierung", aenderung:"Faktor 0,65 für alle Stufen, FTP 210 W.",
+      basis:"FTP-Test vom 8.11.: Laut Original-Tabelle 323 W über 20 Minuten, Puls höchstens 155. Draußen schaffst du bei ähnlichem Puls nur etwa 215–240 W (geschätzt aus deinen Anstiegen Späneplatz und Höllhof). Die Tabelle zeigt für dein Bike also etwa 35–50 % zu viel. Unsicherheit etwa ±10 %." },
+    { datum:"8.11.2026", v:2, titel:"FTP angehoben", aenderung:"Faktor unverändert 0,65, FTP 225 W.",
+      basis:"Im FTP-Test lag dein Puls am Ende nur bei 151–153, bei voller Belastung wären 160 und mehr zu erwarten. Es war also noch Reserve da. 225 W ist die Mitte der plausiblen Spanne von 210–240 W." },
+    { datum:"19.11.2026", titel:"Prüfung mit Schwellentraining", aenderung:"Keine Änderung.",
+      basis:"Schwelle 3 × 10' vom 19.11.: Im 2. Intervall 213 W bei Ø Puls 147 (am Ende 154), gefahren auf Stufe 26–27. Draußen am Späneplatz etwa 215 W bei Puls 154. Das passt zusammen, der Faktor 0,65 ist für die Stufen um deine Schwelle bestätigt. Für niedrige Stufen gibt es noch zu wenig Daten. Puls am Intervallende (146 und 154) lag knapp unter dem Ziel 155–162, deshalb FTP vorerst gleich lassen und beim nächsten Schwellentraining mit + auf 102–104 % gehen." }
+  ];
+  function renderCalHist(){
+    const ol = $("#calHist"); ol.textContent = "";
+    const current = store.get("srx.calib.src") === "manual" ? null : BUILTIN_CAL.v;
+    for (const h of CAL_HISTORY.slice().reverse()){
+      const li = document.createElement("li");
+      if (h.v && h.v === current) li.className = "now";
+      const head = Object.assign(document.createElement("span"), { className:"h-head", textContent: h.titel + (h.v ? ` · Version ${h.v}` : "") + (h.v && h.v === current ? " (aktuell)" : "") });
+      const meta = Object.assign(document.createElement("span"), { className:"h-meta", textContent: `${h.datum} · ${h.aenderung}` });
+      const text = Object.assign(document.createElement("span"), { className:"h-text", textContent: h.basis });
+      li.append(head, meta, text); ol.append(li);
+    }
+  }
+  renderCalGrid(); renderCalSummary(); renderCalLog(); renderCalHist();
 
   /* ---------- Wiederherstellen ---------- */
   const saved = store.get(REC_KEY);
