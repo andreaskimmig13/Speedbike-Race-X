@@ -289,6 +289,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
       <button id="bNew" class="danger" type="button" hidden>Neue Fahrt</button>
     </div>
     <p id="stravaMsg" class="callout" hidden aria-live="polite"></p>
+    <p class="small" id="gapHint" hidden></p>
     <p class="small" id="uploadHint" hidden>Ohne Einrichtung: TCX-Datei speichern, strava.com/upload/select im Browser öffnen (am Handy „Desktopwebsite“ aktivieren) und die Datei wählen. Jeder Trainingsabschnitt erscheint in Strava als eigene Runde.</p>
     <details id="stravaSetup" class="sub-details">
       <summary>Strava-Upload einrichten</summary>
@@ -1002,7 +1003,7 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     catch(e){ showErgNote("Stufe konnte nicht gesetzt werden: " + e.message); return false; }
   }
 
-  function startSeg(){
+  function startSeg(quiet){
     const s = wo.segs[wo.idx];
     wo.segSec = 0; wo.lastBeep = -1;
     erg.override = false; erg.lastChange = 0; erg.cad = [];
@@ -1012,16 +1013,17 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     const c = current();
     const rpm0 = (mode === "erg" && c.cad && c.cad.v > 60) ? c.cad.v : PLAN_CAD;
     const target = s.kind === "test" ? ftp : segTarget(s);
+    if (quiet){ erg.level = clampLvl(levelFor(target, s.kind === "test" ? 90 : rpm0)); return; }
     applyLevel(levelFor(target, s.kind === "test" ? 90 : rpm0), s.label);
     if (wo.idx > 0){ beep(1046, 220); try{ navigator.vibrate && navigator.vibrate(250); }catch(e){} }
     renderRun();
   }
-  function nextSeg(){
+  function nextSeg(quiet){
     const s = wo.segs[wo.idx];
     if (s && s.kind === "test" && wo.testRange){ wo.testRange[1] = rec.points.length; showTestResult(); }
     wo.idx++;
     if (wo.idx >= wo.segs.length){ finishWorkout(); return; }
-    startSeg();
+    startSeg(quiet);
   }
   function finishWorkout(){
     const s = wo.segs[wo.idx];
@@ -1204,12 +1206,48 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     }
   }
 
+  // Läuft die App im Hintergrund, bremst oder stoppt Chrome die Uhr der Seite.
+  // Beim nächsten Takt werden die verpassten Sekunden nachgetragen: Zeit nach echter Uhr,
+  // Werte dazwischen gemittelt aus letztem und aktuellem Wert. Trainingsabschnitte laufen dabei weiter.
+  const MAX_GAP_SEC = 30 * 60;   // längere Lücken gelten als Pause
+  function fillGap(n, c){
+    const last = rec.points[rec.points.length - 1];
+    const a = last ? { hr:last[1], cad:last[2], w:last[3] } : { hr:0, cad:0, w:0 };
+    const b = { hr: c.hr ? R(c.hr.v) : a.hr, cad: R(c.rpm), w: R(c.w) };
+    const segBefore = wo.idx;
+    for (let i = 1; i <= n; i++){
+      const f = i / (n + 1), lerp = (x, y) => R(x + (y - x) * f);
+      const w = lerp(a.w, b.w), v = speedFromPower(w);
+      rec.last += 1000;
+      rec.activeSec += 1; rec.dist += v; rec.work += w;
+      rec.points.push([rec.last, a.hr && b.hr ? lerp(a.hr, b.hr) : 0, lerp(a.cad, b.cad), w, +v.toFixed(2), +rec.dist.toFixed(1)]);
+      if (wo.active){
+        wo.segSec += 1;
+        const s = wo.segs[wo.idx];
+        if (isFinite(s.sec) && wo.segSec >= s.sec) nextSeg(true);
+        if (!wo.active) break;
+      }
+    }
+    rec.gapSec = (rec.gapSec || 0) + n;
+    saveRide();
+    // Nach dem Nachholen die Stufe des aktuellen Abschnitts einmal setzen
+    if (wo.active && wo.idx !== segBefore){
+      const s = wo.segs[wo.idx];
+      applyLevel(erg.level, s.label + " (nach Hintergrund)");
+      beep(1046, 220);
+    }
+  }
+
   function tick(){
     const c = current();
     if (rec.state === "run") trackBlock(c); else if (blk) closeBlock();
     if (rec.state === "run"){
       const now = Date.now();
-      const dt = Math.min(5, Math.max(0, (now - rec.last) / 1000));
+      const missed = Math.floor((now - rec.last) / 1000) - 1;
+      if (missed > 0 && missed <= MAX_GAP_SEC) fillGap(missed, c);
+      else if (missed > MAX_GAP_SEC) rec.last = now - 1000;   // sehr lange weg: als Pause werten
+      if (rec.state !== "run"){ render(); renderRide(); return; }   // Training kann beim Nachholen geendet haben
+      const dt = Math.max(0, Math.min(2, (now - rec.last) / 1000));
       rec.last = now;
       const v = speedFromPower(c.w);
       rec.activeSec += dt; rec.dist += v * dt; rec.work += c.w * dt;
@@ -1229,6 +1267,8 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     render(); renderRide(); renderRun();
   }
   setInterval(tick, 1000);
+  // Beim Zurückkehren in die App sofort nachholen statt bis zum nächsten Takt zu warten
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") tick(); });
 
   const de = (n, d) => n.toLocaleString("de-DE", { minimumFractionDigits:d, maximumFractionDigits:d });
   function avgHr(pts){ const h = pts.map(p => p[1]).filter(x => x > 0); return h.length ? R(h.reduce((a,b)=>a+b,0)/h.length) : null; }
@@ -1255,9 +1295,11 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
     if (st !== "done") $("#stravaMsg").hidden = true;
     $("#bNew").hidden = st !== "done";
     $("#uploadHint").hidden = st !== "done";
+    $("#gapHint").hidden = !(rec.gapSec >= 5);
+    if (rec.gapSec >= 5) $("#gapHint").textContent = `Die App war insgesamt ${fmtTime(rec.gapSec)} im Hintergrund. Die Zeit stimmt, die Werte in dieser Zeit sind aus davor und danach gemittelt. Für genaue Daten und die automatische Stufe die App im Vordergrund lassen.`;
     $("#wStart").disabled = st === "run" || st === "pause";
   }
-  function saveRide(){ if (rec.points.length) store.set(REC_KEY, { points:rec.points, activeSec:rec.activeSec, dist:rec.dist, work:rec.work, laps:rec.laps, name:rec.name, stravaId:rec.stravaId || null }); }
+  function saveRide(){ if (rec.points.length) store.set(REC_KEY, { points:rec.points, activeSec:rec.activeSec, dist:rec.dist, work:rec.work, laps:rec.laps, name:rec.name, stravaId:rec.stravaId || null, gapSec:rec.gapSec || 0 }); }
 
   $("#bStart").addEventListener("click", () => { initAudio(); rec = newRide(); rec.state = "run"; rec.last = Date.now(); rec.name = "Indoor-Fahrt"; keepAwake(); renderRide(); });
   $("#bPause").addEventListener("click", () => { rec.state = "pause"; saveRide(); renderRide(); });
