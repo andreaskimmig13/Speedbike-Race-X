@@ -937,8 +937,8 @@ textarea{width:100%;min-height:180px;font:.8rem/1.5 var(--f-mono);background:var
 
   /* ---------- Kalibrierung von Claude: kommt mit App-Updates und wird automatisch übernommen ---------- */
   const BUILTIN_CAL = {
-    v: 2, stand: "8.11.2026", code: "SRXCAL1;alle:0.65", ftp: 225,
-    info: "Faktor aus dem FTP-Test vom 8.11. (Puls verglichen mit deinen Anstiegen draußen). FTP auf 225 W angehoben, weil im Test noch Reserve war."
+    v: 3, stand: "19.11.2026", code: "SRXCAL1;alle:0.65", ftp: 235,
+    info: "Faktor unverändert 0,65. FTP auf 235 W angehoben, weil deine Gravel-Anstiege und das Schwellentraining vom 19.11. dafür sprechen."
   };
   function useBuiltinCal(withFtp){
     calib = parseCalCode(BUILTIN_CAL.code);
@@ -1560,7 +1560,9 @@ ${laps}
     { datum:"8.11.2026", v:2, titel:"FTP angehoben", aenderung:"Faktor unverändert 0,65, FTP 225 W.",
       basis:"Im FTP-Test lag dein Puls am Ende nur bei 151–153, bei voller Belastung wären 160 und mehr zu erwarten. Es war also noch Reserve da. 225 W ist die Mitte der plausiblen Spanne von 210–240 W." },
     { datum:"19.11.2026", titel:"Prüfung mit Schwellentraining", aenderung:"Keine Änderung.",
-      basis:"Schwelle 3 × 10' vom 19.11.: Im 2. Intervall 213 W bei Ø Puls 147 (am Ende 154), gefahren auf Stufe 26–27. Draußen am Späneplatz etwa 215 W bei Puls 154. Das passt zusammen, der Faktor 0,65 ist für die Stufen um deine Schwelle bestätigt. Für niedrige Stufen gibt es noch zu wenig Daten. Puls am Intervallende (146 und 154) lag knapp unter dem Ziel 155–162, deshalb FTP vorerst gleich lassen und beim nächsten Schwellentraining mit + auf 102–104 % gehen." }
+      basis:"Schwelle 3 × 10' vom 19.11.: Im 2. Intervall 213 W bei Ø Puls 147 (am Ende 154), gefahren auf Stufe 26–27. Draußen am Späneplatz etwa 215 W bei Puls 154. Das passt zusammen, der Faktor 0,65 ist für die Stufen um deine Schwelle bestätigt. Für niedrige Stufen gibt es noch zu wenig Daten. Puls am Intervallende (146 und 154) lag knapp unter dem Ziel 155–162." },
+    { datum:"19.11.2026", v:3, titel:"FTP angehoben", aenderung:"Faktor unverändert 0,65, FTP 235 W.",
+      basis:"Gravel-Fahrten vom 31.10. und 14.11.: Aus Zeit und Höhenmetern der Anstiege geschätzt etwa 226–235 W über 12–14 Minuten bei Puls 161–162 (Durbach long climb, Oberberg) und 255–260 W über 7–10 Minuten bei Puls 165–169 (Ringelbach, Weintalstraße). Daraus ergibt sich ein FTP von etwa 235 W (Spanne 215–255 W). Das Schwellentraining vom 19.11. war mit 225 W etwas zu leicht, auch das spricht für rund 235 W. Am 14.11. warst du an denselben Anstiegen bei gleichem Puls 1–5 % schneller als am 31.10." }
   ];
   function renderCalHist(){
     const ol = $("#calHist"); ol.textContent = "";
